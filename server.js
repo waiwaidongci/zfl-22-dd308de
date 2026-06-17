@@ -295,8 +295,9 @@ function page() {
       <div class="modal-sub" id="pay-modal-sub"></div>
       <div id="pay-summary"></div>
       <div id="pay-list"></div>
-      <div class="divider" style="margin:8px 0 12px;"></div>
-      <h4 style="margin:0 0 8px;font-size:14px;">新增收款</h4>
+      <div id="pay-form-area">
+        <div class="divider" style="margin:8px 0 12px;"></div>
+        <h4 style="margin:0 0 8px;font-size:14px;">新增收款</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <label style="margin:0;">收款类型<select id="pay-type"><option value="定金">定金</option><option value="尾款">尾款</option></select></label>
         <label style="margin:0;">收款金额<input id="pay-amount" type="number" min="1" step="1" placeholder="输入金额"></label>
@@ -305,6 +306,7 @@ function page() {
       </div>
       <div id="pay-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
       <button id="pay-submit" style="margin-top:10px;width:100%;">确认收款</button>
+      </div>
       <button class="secondary modal-close" id="pay-close" style="margin-top:6px;width:100%;">关闭</button>
     </div>
   </div>
@@ -334,8 +336,9 @@ function page() {
       const payments = order.payments || [];
       const paidTotal = payments.reduce((s, p) => s + p.amount, 0);
       const price = order.price || 0;
-      if (price <= 0) return { text: "未报价", cls: "none", paidTotal: 0, unpaid: 0 };
+      if (price <= 0) return { text: "未报价", cls: "none", paidTotal: 0, unpaid: 0, noPrice: true };
       if (paidTotal >= price) return { text: "已收款", cls: "full", paidTotal, unpaid: 0 };
+      if (order.paid && paidTotal === 0) return { text: "已收款", cls: "full", paidTotal: price, unpaid: 0 };
       if (paidTotal > 0) return { text: "部分收款 ¥"+paidTotal+"/"+price, cls: "partial", paidTotal, unpaid: price - paidTotal };
       return { text: "未收款", cls: "none", paidTotal: 0, unpaid: price };
     }
@@ -610,10 +613,19 @@ function page() {
       currentPaymentOrderId = orderId;
       const pi = getPaidInfo(order);
       document.querySelector("#pay-modal-title").textContent = "收款登记 · " + order.id;
-      document.querySelector("#pay-modal-sub").textContent = order.client + " · " + order.fishSpecies + " · 报价 ¥" + (order.price || 0);
+      document.querySelector("#pay-modal-sub").textContent = order.client + " · " + order.fishSpecies + (pi.noPrice ? "" : " · 报价 ¥" + (order.price || 0));
+      if (pi.noPrice) {
+        document.querySelector("#pay-summary").innerHTML = '<div style="text-align:center;padding:16px;color:var(--warn);font-weight:700;">未报价，无法登记收款</div>';
+        document.querySelector("#pay-list").innerHTML = "";
+        document.querySelector("#pay-form-area").style.display = "none";
+        document.querySelector("#pay-error").style.display = "none";
+        return document.querySelector("#payment-overlay").classList.add("active");
+      }
       document.querySelector("#pay-summary").innerHTML = '<div class="payment-summary"><div class="sum-item"><div class="sum-label">报价</div><div class="sum-value warn">¥'+(order.price||0)+'</div></div><div class="sum-item"><div class="sum-label">已收</div><div class="sum-value green">¥'+pi.paidTotal+'</div></div><div class="sum-item"><div class="sum-label">未收</div><div class="sum-value '+(pi.unpaid > 0 ? 'warn':'green')+'">¥'+pi.unpaid+'</div></div></div>';
       const payments = order.payments || [];
-      if (payments.length === 0) {
+      if (payments.length === 0 && order.paid && pi.paidTotal > 0) {
+        document.querySelector("#pay-list").innerHTML = '<div style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">历史已收款（收款记录未录入系统）</div>';
+      } else if (payments.length === 0) {
         document.querySelector("#pay-list").innerHTML = '<div style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">暂无收款记录</div>';
       } else {
         document.querySelector("#pay-list").innerHTML = '<div class="payment-list">' + payments.map(p => '<div class="payment-item"><div><span class="payment-type '+(p.type==='定金'?'deposit':'final')+'">'+p.type+'</span> ¥'+p.amount+'</div><div style="text-align:right;"><div style="font-size:12px;color:var(--muted);">'+p.paidAt+'</div>'+(p.note?'<div style="font-size:11px;color:var(--muted);">'+p.note+'</div>':'')+'</div></div>').join("") + '</div>';
@@ -623,6 +635,7 @@ function page() {
       document.querySelector("#pay-note").value = "";
       document.querySelector("#pay-type").value = "定金";
       document.querySelector("#pay-error").style.display = "none";
+      document.querySelector("#pay-form-area").style.display = "";
       const fullyPaid = pi.unpaid <= 0;
       document.querySelector("#pay-submit").disabled = fullyPaid;
       document.querySelector("#pay-submit").textContent = fullyPaid ? "已收清" : "确认收款";
@@ -734,7 +747,8 @@ const server = http.createServer(async (req, res) => {
         if (!input.amount || Number(input.amount) <= 0) return sendJson(res, 400, { error: "收款金额必须大于0" });
         const newAmount = Number(input.amount);
         const paidTotal = (order.payments || []).reduce((s, p) => s + p.amount, 0);
-        if (paidTotal + newAmount > order.price) return sendJson(res, 400, { error: `收款金额超过未收金额（未收 ¥${order.price - paidTotal}）` });
+        const effectivePaid = (order.paid && paidTotal === 0) ? order.price : paidTotal;
+        if (effectivePaid + newAmount > order.price) return sendJson(res, 400, { error: `收款金额超过未收金额（未收 ¥${order.price - effectivePaid}）` });
         const recentDup = (order.payments || []).find(p => p.type === input.type && p.amount === newAmount && p.paidAt === input.paidAt);
         if (recentDup) return sendJson(res, 400, { error: "已存在相同的收款记录，请勿重复提交" });
         if (!order.payments) order.payments = [];
