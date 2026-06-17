@@ -1,6 +1,29 @@
 {
   "orders": [
     {
+      "id": "FT-1781673852509",
+      "client": "测试",
+      "fishSpecies": "鲈鱼",
+      "size": "30x20cm",
+      "paper": "宣纸",
+      "inkPlan": "浓墨",
+      "mounting": "立轴",
+      "inscription": "",
+      "owner": "阿青",
+      "price": 0,
+      "dueDate": "2026-07-01",
+      "paid": false,
+      "payments": [],
+      "status": "待拓印",
+      "history": [
+        {
+          "at": "2026-06-17T05:24:12.509Z",
+          "stage": "待拓印",
+          "note": "新委托接单"
+        }
+      ]
+    },
+    {
       "id": "FT-2601",
       "client": "沈钧",
       "fishSpecies": "真鲷",
@@ -11,7 +34,7 @@
       "inscription": "海上清风",
       "owner": "阿青",
       "price": 1800,
-      "paid": false,
+      "paid": true,
       "dueDate": "2026-06-24",
       "status": "晾干中",
       "history": [
@@ -24,6 +47,22 @@
           "at": "2026-06-13T15:30:00.000Z",
           "stage": "晾干中",
           "note": "完成右侧直接拓印"
+        }
+      ],
+      "payments": [
+        {
+          "id": "PAY-1781673777700",
+          "type": "定金",
+          "amount": 500,
+          "paidAt": "2026-06-17",
+          "note": ""
+        },
+        {
+          "id": "PAY-1781673827469",
+          "type": "尾款",
+          "amount": 1300,
+          "paidAt": "2026-06-17",
+          "note": "尾款结清"
         }
       ]
     },
@@ -41,7 +80,7 @@
       "paid": true,
       "dueDate": "2026-06-10",
       "status": "已完成",
-      "archived": true,
+      "archived": false,
       "history": [
         {
           "at": "2026-06-01T09:00:00.000Z",
@@ -72,19 +111,6 @@
     }
   ],
   "works": [
-    {
-      "id": "W-1781670774443",
-      "orderId": "FT-2600",
-      "client": "周明远",
-      "fishSpecies": "黑鲷",
-      "size": "60x30cm",
-      "paper": "云母宣",
-      "inkPlan": "浓墨鱼身，浓淡对比",
-      "mounting": "镜片",
-      "inscription": "渔乐无穷",
-      "owner": "阿青",
-      "completedAt": "2026-06-10T11:00:00.000Z"
-    },
     {
       "id": "W-001",
       "orderId": "FT-2599",

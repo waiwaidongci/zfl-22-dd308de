@@ -23,6 +23,7 @@ const seed = {
       owner: "阿青",
       price: 1800,
       paid: false,
+      payments: [],
       dueDate: "2026-06-24",
       status: "晾干中",
       history: [
@@ -42,6 +43,10 @@ const seed = {
       owner: "阿青",
       price: 1500,
       paid: true,
+      payments: [
+        { id: "PAY-2600-1", type: "定金", amount: 500, paidAt: "2026-06-01", note: "微信转账" },
+        { id: "PAY-2600-2", type: "尾款", amount: 1000, paidAt: "2026-06-10", note: "取件时现金结清" }
+      ],
       dueDate: "2026-06-10",
       status: "已完成",
       archived: false,
@@ -149,6 +154,22 @@ function page() {
     .detail div { font-size:14px; }
     .detail .label { color:var(--muted); font-size:12px; display:inline-block; min-width:70px; }
     .divider { height:1px; background:var(--line); margin:4px 0; }
+    .paid-status { font-size:12px; font-weight:700; padding:2px 8px; border-radius:999px; }
+    .paid-status.full { background:#dff0ed; color:#1e5854; }
+    .paid-status.partial { background:#fde8d8; color:#8a4a1e; }
+    .paid-status.none { background:#fce4e4; color:#9b2c2c; }
+    .payment-list { max-height:200px; overflow-y:auto; margin-bottom:12px; }
+    .payment-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; }
+    .payment-item:last-child { border-bottom:none; }
+    .payment-type { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px; font-weight:700; }
+    .payment-type.deposit { background:#e0f0e8; color:#246b68; }
+    .payment-type.final { background:#e8f0e0; color:#4a7a2e; }
+    .payment-summary { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px; text-align:center; }
+    .payment-summary .sum-item { padding:8px; border-radius:6px; background:var(--bg); }
+    .payment-summary .sum-label { font-size:11px; color:var(--muted); }
+    .payment-summary .sum-value { font-size:18px; font-weight:700; }
+    .payment-summary .sum-value.warn { color:var(--warn); }
+    .payment-summary .sum-value.green { color:var(--accent); }
     .calendar-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
     .calendar-nav { display:flex; gap:8px; align-items:center; }
     .calendar-nav button { padding:6px 14px; font-size:14px; }
@@ -170,6 +191,7 @@ function page() {
     .calendar-order.paid { background:#dff0ed; color:#1e5854; border-color:#bcd8d4; }
     .calendar-order.overdue { background:#fce4e4; color:#9b2c2c; border-color:#e8b4b4; }
     .calendar-order.completed { background:#e8f0e8; color:#3f6b3f; border-color:#c5dcc5; }
+    .calendar-order.partial { background:#fff3e0; color:#a65b2a; border-color:#e6c9ab; }
     .modal-overlay { position:fixed; inset:0; background:rgba(30,43,45,0.55); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; }
     .modal-overlay.active { display:flex; }
     .modal { background:var(--panel); border-radius:10px; max-width:480px; width:100%; padding:22px; border:1px solid var(--line); box-shadow:0 12px 40px rgba(0,0,0,0.18); }
@@ -212,7 +234,7 @@ function page() {
           <label>装裱方式</label><input name="mounting" required>
           <label>题字内容</label><input name="inscription">
           <label>负责人</label><input name="owner" required>
-          <label>报价</label><input name="price" type="number" required>
+          <label>报价（元）</label><input name="price" type="number" min="0" required>
           <label>交付日期</label><input name="dueDate" type="date" required>
           <button>保存委托</button>
         </form>
@@ -242,6 +264,7 @@ function page() {
       <div class="calendar-legend">
         <span><span class="legend-dot unpaid"></span>未收款</span>
         <span><span class="legend-dot paid"></span>已收款</span>
+        <span><span class="legend-dot partial" style="background:#fff3e0;border-color:#e6c9ab;"></span>部分收款</span>
         <span><span class="legend-dot overdue"></span>逾期未完成</span>
         <span><span class="legend-dot completed"></span>已完成</span>
       </div>
@@ -266,6 +289,25 @@ function page() {
       <button class="modal-close" id="modal-close">关闭</button>
     </div>
   </div>
+  <div class="modal-overlay" id="payment-overlay">
+    <div class="modal" style="max-width:540px;">
+      <h3 id="pay-modal-title">收款登记</h3>
+      <div class="modal-sub" id="pay-modal-sub"></div>
+      <div id="pay-summary"></div>
+      <div id="pay-list"></div>
+      <div class="divider" style="margin:8px 0 12px;"></div>
+      <h4 style="margin:0 0 8px;font-size:14px;">新增收款</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <label style="margin:0;">收款类型<select id="pay-type"><option value="定金">定金</option><option value="尾款">尾款</option></select></label>
+        <label style="margin:0;">收款金额<input id="pay-amount" type="number" min="1" step="1" placeholder="输入金额"></label>
+        <label style="margin:0;">收款日期<input id="pay-date" type="date"></label>
+        <label style="margin:0;">备注<input id="pay-note" placeholder="选填"></label>
+      </div>
+      <div id="pay-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <button id="pay-submit" style="margin-top:10px;width:100%;">确认收款</button>
+      <button class="secondary modal-close" id="pay-close" style="margin-top:6px;width:100%;">关闭</button>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
     let orders = [];
@@ -288,6 +330,16 @@ function page() {
       return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
     }
 
+    function getPaidInfo(order) {
+      const payments = order.payments || [];
+      const paidTotal = payments.reduce((s, p) => s + p.amount, 0);
+      const price = order.price || 0;
+      if (price <= 0) return { text: "未报价", cls: "none", paidTotal: 0, unpaid: 0 };
+      if (paidTotal >= price) return { text: "已收款", cls: "full", paidTotal, unpaid: 0 };
+      if (paidTotal > 0) return { text: "部分收款 ¥"+paidTotal+"/"+price, cls: "partial", paidTotal, unpaid: price - paidTotal };
+      return { text: "未收款", cls: "none", paidTotal: 0, unpaid: price };
+    }
+
     function renderOrders() {
       const filter = document.querySelector("#filter");
       const statsEl = document.querySelector("#stats");
@@ -303,7 +355,8 @@ function page() {
               ? '<button class="secondary" disabled>已归档</button>'
               : '<button data-archive="'+o.id+'">一键归档到作品</button>')
           : "";
-        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div><div class="row"><div class="money">报价'+o.price+'元 · '+(o.paid ? "已收款" : "未收款")+'</div><div class="meta">负责人：'+o.owner+'</div></div><label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
+        const pi = getPaidInfo(o);
+        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div><div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div><label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
       }).join("");
       document.querySelectorAll("[data-id]").forEach(sel => { sel.value = orders.find(o => o.id === sel.dataset.id).status; });
       document.querySelectorAll("[data-save]").forEach(btn => btn.onclick = async () => {
@@ -321,6 +374,9 @@ function page() {
           alert("归档成功！");
           await load();
         } catch (e) { alert(e.message); }
+      });
+      document.querySelectorAll("[data-payment]").forEach(btn => btn.onclick = () => {
+        openPaymentModal(btn.dataset.payment);
       });
     }
 
@@ -362,7 +418,10 @@ function page() {
       dueDate.setHours(0, 0, 0, 0);
       if (order.status === "已完成") return "completed";
       if (dueDate < today) return "overdue";
-      return order.paid ? "paid" : "unpaid";
+      const pi = getPaidInfo(order);
+      if (pi.cls === "full") return "paid";
+      if (pi.cls === "partial") return "partial";
+      return "unpaid";
     }
 
     function showOrderDetail(orderId) {
@@ -382,12 +441,15 @@ function page() {
       if (order.status !== "已完成" && dueDate < today) {
         statusText += " (已逾期)";
       }
+      const pi = getPaidInfo(order);
       modalDetail.innerHTML = '<div class="row"><span class="label">委托人</span><span class="value">'+order.client+'</span></div>'
         + '<div class="row"><span class="label">鱼种</span><span class="value">'+order.fishSpecies+'</span></div>'
         + '<div class="row"><span class="label">当前阶段</span><span class="value">'+statusText+'</span></div>'
         + '<div class="row"><span class="label">负责人</span><span class="value">'+order.owner+'</span></div>'
-        + '<div class="row"><span class="label">收款状态</span><span class="value">'+(order.paid ? "已收款" : "未收款")+'</span></div>'
-        + '<div class="row"><span class="label">报价</span><span class="value">'+order.price+' 元</span></div>'
+        + '<div class="row"><span class="label">收款状态</span><span class="value"><span class="paid-status '+pi.cls+'">'+pi.text+'</span></span></div>'
+        + '<div class="row"><span class="label">报价</span><span class="value">'+(order.price||0)+' 元</span></div>'
+        + '<div class="row"><span class="label">已收金额</span><span class="value">¥'+pi.paidTotal+'</span></div>'
+        + '<div class="row"><span class="label">未收金额</span><span class="value">¥'+pi.unpaid+'</span></div>'
         + '<div class="row"><span class="label">交付日期</span><span class="value">'+fmtDate(order.dueDate)+'</span></div>'
         + '<div class="row"><span class="label">装裱方式</span><span class="value">'+order.mounting+'</span></div>'
         + '<div class="row"><span class="label">纸张</span><span class="value">'+order.paper+'</span></div>';
@@ -450,7 +512,8 @@ function page() {
         html += '<div class="'+dayClass+'"><span class="day-num">'+d+'</span><div class="calendar-orders">';
         dayOrders.slice(0, 3).forEach(o => {
           const cls = getOrderClass(o);
-          const title = o.client + " · " + o.fishSpecies + " · " + o.status + " · " + (o.paid ? "已收款" : "未收款");
+          const pi = getPaidInfo(o);
+          const title = o.client + " · " + o.fishSpecies + " · " + o.status + " · " + pi.text;
           html += '<div class="calendar-order '+cls+'" data-order-id="'+o.id+'" title="'+title+'">'+o.client+' · '+o.fishSpecies+'</div>';
         });
         if (dayOrders.length > 3) {
@@ -539,6 +602,73 @@ function page() {
       }
     };
 
+    let currentPaymentOrderId = null;
+
+    function openPaymentModal(orderId) {
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return;
+      currentPaymentOrderId = orderId;
+      const pi = getPaidInfo(order);
+      document.querySelector("#pay-modal-title").textContent = "收款登记 · " + order.id;
+      document.querySelector("#pay-modal-sub").textContent = order.client + " · " + order.fishSpecies + " · 报价 ¥" + (order.price || 0);
+      document.querySelector("#pay-summary").innerHTML = '<div class="payment-summary"><div class="sum-item"><div class="sum-label">报价</div><div class="sum-value warn">¥'+(order.price||0)+'</div></div><div class="sum-item"><div class="sum-label">已收</div><div class="sum-value green">¥'+pi.paidTotal+'</div></div><div class="sum-item"><div class="sum-label">未收</div><div class="sum-value '+(pi.unpaid > 0 ? 'warn':'green')+'">¥'+pi.unpaid+'</div></div></div>';
+      const payments = order.payments || [];
+      if (payments.length === 0) {
+        document.querySelector("#pay-list").innerHTML = '<div style="text-align:center;color:var(--muted);padding:12px;font-size:13px;">暂无收款记录</div>';
+      } else {
+        document.querySelector("#pay-list").innerHTML = '<div class="payment-list">' + payments.map(p => '<div class="payment-item"><div><span class="payment-type '+(p.type==='定金'?'deposit':'final')+'">'+p.type+'</span> ¥'+p.amount+'</div><div style="text-align:right;"><div style="font-size:12px;color:var(--muted);">'+p.paidAt+'</div>'+(p.note?'<div style="font-size:11px;color:var(--muted);">'+p.note+'</div>':'')+'</div></div>').join("") + '</div>';
+      }
+      document.querySelector("#pay-date").value = new Date().toISOString().slice(0, 10);
+      document.querySelector("#pay-amount").value = "";
+      document.querySelector("#pay-note").value = "";
+      document.querySelector("#pay-type").value = "定金";
+      document.querySelector("#pay-error").style.display = "none";
+      const fullyPaid = pi.unpaid <= 0;
+      document.querySelector("#pay-submit").disabled = fullyPaid;
+      document.querySelector("#pay-submit").textContent = fullyPaid ? "已收清" : "确认收款";
+      document.querySelector("#payment-overlay").classList.add("active");
+    }
+
+    document.querySelector("#pay-close").onclick = () => {
+      document.querySelector("#payment-overlay").classList.remove("active");
+      currentPaymentOrderId = null;
+    };
+    document.querySelector("#payment-overlay").onclick = (e) => {
+      if (e.target.id === "payment-overlay") {
+        document.querySelector("#payment-overlay").classList.remove("active");
+        currentPaymentOrderId = null;
+      }
+    };
+    document.querySelector("#pay-submit").onclick = async () => {
+      if (!currentPaymentOrderId) return;
+      const type = document.querySelector("#pay-type").value;
+      const amount = document.querySelector("#pay-amount").value;
+      const paidAt = document.querySelector("#pay-date").value;
+      const note = document.querySelector("#pay-note").value;
+      const errorEl = document.querySelector("#pay-error");
+      if (!amount || Number(amount) <= 0) {
+        errorEl.textContent = "请输入有效的收款金额";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!paidAt) {
+        errorEl.textContent = "请选择收款日期";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        await api('/api/orders/'+currentPaymentOrderId+'/payments', {
+          method: 'POST',
+          body: JSON.stringify({ type, amount: Number(amount), paidAt, note })
+        });
+        await load();
+        openPaymentModal(currentPaymentOrderId);
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    };
+
     document.querySelector("#form").onsubmit = async (event) => {
       event.preventDefault();
       const form = event.target;
@@ -575,7 +705,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/orders") {
       const input = await body(req);
-      const order = { id: `FT-${Date.now()}`, ...input, price: Number(input.price || 0), paid: false, status: "待拓印", history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }] };
+      const order = { id: `FT-${Date.now()}`, ...input, price: Number(input.price || 0), paid: false, payments: [], status: "待拓印", history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }] };
       db.orders.unshift(order);
       await saveDb(db);
       return sendJson(res, 201, order);
@@ -591,6 +721,31 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, order);
     }
     if (req.method === "GET" && url.pathname === "/api/works") return sendJson(res, 200, db.works || []);
+    const paymentsMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/payments$/);
+    if (paymentsMatch) {
+      const order = db.orders.find(item => item.id === paymentsMatch[1]);
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      if (req.method === "GET") {
+        return sendJson(res, 200, order.payments || []);
+      }
+      if (req.method === "POST") {
+        if (!order.price || order.price <= 0) return sendJson(res, 400, { error: "报价为空，无法登记收款" });
+        const input = await body(req);
+        if (!input.amount || Number(input.amount) <= 0) return sendJson(res, 400, { error: "收款金额必须大于0" });
+        const newAmount = Number(input.amount);
+        const paidTotal = (order.payments || []).reduce((s, p) => s + p.amount, 0);
+        if (paidTotal + newAmount > order.price) return sendJson(res, 400, { error: `收款金额超过未收金额（未收 ¥${order.price - paidTotal}）` });
+        const recentDup = (order.payments || []).find(p => p.type === input.type && p.amount === newAmount && p.paidAt === input.paidAt);
+        if (recentDup) return sendJson(res, 400, { error: "已存在相同的收款记录，请勿重复提交" });
+        if (!order.payments) order.payments = [];
+        const payment = { id: `PAY-${Date.now()}`, type: input.type || "定金", amount: newAmount, paidAt: input.paidAt || new Date().toISOString().slice(0, 10), note: input.note || "" };
+        order.payments.push(payment);
+        const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
+        order.paid = totalPaid >= order.price;
+        await saveDb(db);
+        return sendJson(res, 201, payment);
+      }
+    }
     const archiveMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/archive$/);
     if (archiveMatch && req.method === "POST") {
       const order = db.orders.find(item => item.id === archiveMatch[1]);
