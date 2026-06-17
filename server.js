@@ -262,6 +262,22 @@ async function migrateLegacyData(db) {
     db._tasksMigrated = true;
     changed = true;
   }
+  if (!db.orderChanges) {
+    db.orderChanges = [];
+    changed = true;
+  }
+  if (!db._changeRequestMigrated) {
+    if (Array.isArray(db.orders)) {
+      for (const order of db.orders) {
+        if (!order.changeHistory) {
+          order.changeHistory = [];
+          changed = true;
+        }
+      }
+    }
+    db._changeRequestMigrated = true;
+    changed = true;
+  }
   if (changed) {
     await saveDb(db);
   }
@@ -535,6 +551,39 @@ function page() {
     .order-card-stock.ok { background:#eef4f1; color:#246b68; border:1px solid #cddbd6; }
     .material-modal-form { display:grid; gap:10px; }
     .material-modal-form .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .cr-status-pending { background:#fff7e6; color:#d48806; border-color:#ffe58f; }
+    .cr-status-approved { background:#eef4f1; color:#2d5a4a; border-color:#cddbd6; }
+    .cr-status-rejected { background:#fce4e4; color:#9b2c2c; border-color:#e8b4b4; }
+    .change-card .pill { font-weight:600; }
+    .cd-diff-table { border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+    .cd-diff-header { display:grid; grid-template-columns:100px 1fr 1fr; gap:0; background:var(--bg); font-weight:600; font-size:12px; color:var(--muted); }
+    .cd-diff-header span { padding:8px 10px; border-bottom:1px solid var(--line); }
+    .cd-diff-header span:nth-child(2) { border-left:1px solid var(--line); }
+    .cd-diff-header span:nth-child(3) { border-left:1px solid var(--line); }
+    .cd-diff-row { display:grid; grid-template-columns:100px 1fr 1fr; gap:0; font-size:13px; }
+    .cd-diff-row span { padding:8px 10px; border-bottom:1px solid var(--line); }
+    .cd-diff-row span:nth-child(2) { border-left:1px solid var(--line); text-decoration:line-through; color:#999; }
+    .cd-diff-row span:nth-child(3) { border-left:1px solid var(--line); color:#2d5a4a; font-weight:600; }
+    .cd-diff-row:last-child span { border-bottom:none; }
+    .cd-diff-field { font-weight:600; color:var(--muted); font-size:12px; }
+    .cd-status { display:inline-block; padding:3px 10px; border-radius:4px; font-size:12px; font-weight:600; }
+    .cd-status-pending { background:#fff7e6; color:#d48806; }
+    .cd-status-approved { background:#eef4f1; color:#2d5a4a; }
+    .cd-status-rejected { background:#fce4e4; color:#9b2c2c; }
+    .change-history-list { display:grid; gap:8px; }
+    .change-history-item { padding:10px; background:var(--bg); border-radius:6px; border-left:3px solid var(--line); }
+    .change-history-item .change-history-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .change-history-status { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+    .status-approved { background:#eef4f1; color:#2d5a4a; }
+    .status-pending { background:#fff7e6; color:#d48806; }
+    .change-history-date { font-size:11px; color:var(--muted); }
+    .change-history-desc { font-size:12px; }
+    .change-history-reason { font-size:12px; color:var(--muted); margin-top:2px; }
+    #cr-fields { display:grid; gap:6px; }
+    #cr-fields label { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500; }
+    #cr-fields input[type="checkbox"] { margin:0; }
+    #cr-fields input[type="text"], #cr-fields input[type="number"], #cr-fields input[type="date"], #cr-fields textarea { margin-bottom:6px; }
+    .cr-tip { padding:10px 12px; background:#fff7e6; border:1px solid #ffe58f; border-radius:6px; font-size:13px; color:#8a6d3b; margin-bottom:12px; }
     @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -548,6 +597,7 @@ function page() {
       <div class="tab" data-tab="works">作品档案</div>
       <div class="tab" data-tab="customers">客户档案</div>
       <div class="tab" data-tab="materials">材料库存</div>
+      <div class="tab" data-tab="changes">变更审批</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
@@ -690,6 +740,19 @@ function page() {
         <div class="tx-list" id="tx-list"></div>
       </div>
     </div>
+
+    <div class="tab-content" id="tab-changes">
+      <div class="stats" id="changes-stats"></div>
+      <div class="toolbar">
+        <select id="changes-filter">
+          <option value="">全部状态</option>
+          <option value="pending">待审批</option>
+          <option value="approved">已通过</option>
+          <option value="rejected">已驳回</option>
+        </select>
+      </div>
+      <div class="grid" id="changes-list"></div>
+    </div>
   </main>
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
@@ -821,6 +884,59 @@ function page() {
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="change-request-modal">
+    <div class="modal" style="max-width:600px;">
+      <h3 id="cr-modal-title">发起订单变更</h3>
+      <div class="modal-sub" id="cr-modal-sub"></div>
+      <div id="cr-form-area">
+        <div class="cr-tip" style="padding:10px 12px;background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;font-size:13px;color:#8a6d3b;margin-bottom:12px;"></div>
+        <div id="cr-fields">
+          <label><input type="checkbox" class="cr-field-toggle" data-field="size"> 尺寸</label>
+          <input id="cr-size" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="paper"> 纸张</label>
+          <input id="cr-paper" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="inkPlan"> 墨色方案</label>
+          <textarea id="cr-inkPlan" disabled></textarea>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="mounting"> 装裱方式</label>
+          <input id="cr-mounting" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="inscription"> 题字内容</label>
+          <input id="cr-inscription" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="dueDate"> 交付日期</label>
+          <input id="cr-dueDate" type="date" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="price"> 价格（元）</label>
+          <input id="cr-price" type="number" min="0" step="1" disabled>
+        </div>
+        <label style="margin-top:8px;">变更原因</label>
+        <textarea id="cr-reason" placeholder="请填写变更原因，如：客户要求修改尺寸"></textarea>
+      </div>
+      <div id="cr-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="cr-cancel">取消</button>
+        <button id="cr-submit">提交变更申请</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="change-detail-modal">
+    <div class="modal" style="max-width:700px;">
+      <h3 id="cd-modal-title">变更申请详情</h3>
+      <div class="modal-sub" id="cd-modal-sub"></div>
+      <div class="modal-detail" id="cd-detail"></div>
+      <div id="cd-diff" style="margin-top:12px;"></div>
+      <div id="cd-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button id="cd-reject" style="background:#9b2c2c;">驳回</button>
+        <button id="cd-approve" style="background:#2d5a4a;">通过</button>
+      </div>
+      <div id="cd-reject-form" style="display:none;margin-top:12px;">
+        <label>驳回原因</label>
+        <textarea id="cd-reject-reason" placeholder="请填写驳回原因"></textarea>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+          <button class="secondary" id="cd-reject-cancel">取消</button>
+          <button id="cd-reject-confirm" style="background:#9b2c2c;">确认驳回</button>
+        </div>
+      </div>
+      <button class="secondary modal-close" id="cd-close" style="margin-top:8px;width:100%;">关闭</button>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
     const MATERIAL_CATEGORIES = ${JSON.stringify(MATERIAL_CATEGORIES)};
@@ -853,6 +969,10 @@ function page() {
     let materialCategoryFilter = "";
     let txMaterialFilter = "";
     let formEstimateResult = null;
+    let changeRequests = [];
+    let currentChangeOrderId = null;
+    let currentViewingChangeId = null;
+    let changesFilter = "";
 
     async function api(path, options) {
       const res = await fetch(path, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
@@ -1234,6 +1354,237 @@ function page() {
       }
     }
 
+    function renderChanges() {
+      const statsEl = document.querySelector("#changes-stats");
+      const listEl = document.querySelector("#changes-list");
+      const filterEl = document.querySelector("#changes-filter");
+      const prevFilter = filterEl.value;
+      filterEl.value = prevFilter || changesFilter;
+
+      const pending = changeRequests.filter(c => c.status === "pending").length;
+      const approved = changeRequests.filter(c => c.status === "approved").length;
+      const rejected = changeRequests.filter(c => c.status === "rejected").length;
+      statsEl.innerHTML = '<div class="stat"><span>待审批</span><strong style="color:#d48806;">'+pending+'</strong></div>'
+        + '<div class="stat"><span>已通过</span><strong style="color:#2d5a4a;">'+approved+'</strong></div>'
+        + '<div class="stat"><span>已驳回</span><strong style="color:#9b2c2c;">'+rejected+'</strong></div>'
+        + '<div class="stat stat-total" style="grid-column:span 3;"><span>总计</span><strong>'+changeRequests.length+' 条变更申请</strong></div>';
+
+      const filtered = changesFilter ? changeRequests.filter(c => c.status === changesFilter) : changeRequests;
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无变更申请</div>';
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(cr => {
+        const statusLabels = { pending: "待审批", approved: "已通过", rejected: "已驳回" };
+        const statusCls = "cr-status-"+cr.status;
+        const changeDesc = Object.entries(cr.changes || {})
+          .map(([key, val]) => {
+            const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+            return labels[key] || key;
+          })
+          .join("、");
+        return '<article class="card change-card" data-change-id="'+cr.id+'">'
+          + '<div class="row"><h3>'+cr.orderClient+' · '+cr.orderFishSpecies+'</h3><span class="pill '+statusCls+'">'+statusLabels[cr.status]+'</span></div>'
+          + '<div class="meta">订单号：'+cr.orderId+'</div>'
+          + '<div class="meta">当前状态：'+cr.orderStatus+'</div>'
+          + '<div style="margin-top:6px;"><strong>变更内容：</strong>'+changeDesc+'</div>'
+          + (cr.reason ? '<div class="meta">原因：'+cr.reason+'</div>' : '')
+          + '<div class="row"><div class="meta">申请时间：'+fmtDate(cr.createdAt)+'</div>'
+          + (cr.status === "pending" ? '<button data-view-change="'+cr.id+'" style="padding:6px 12px;font-size:13px;">查看详情</button>' : '<button data-view-change="'+cr.id+'" class="secondary" style="padding:6px 12px;font-size:13px;">查看详情</button>')
+          + '</div></article>';
+      }).join("");
+
+      document.querySelectorAll("[data-view-change]").forEach(btn => btn.onclick = () => openChangeDetailModal(btn.dataset.viewChange));
+    }
+
+    function openChangeRequestModal(orderId) {
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return;
+      currentChangeOrderId = orderId;
+      const overlay = document.querySelector("#change-request-modal");
+      const title = document.querySelector("#cr-modal-title");
+      const sub = document.querySelector("#cr-modal-sub");
+      const tipEl = document.querySelector(".cr-tip");
+      const errorEl = document.querySelector("#cr-error");
+      errorEl.style.display = "none";
+
+      title.textContent = "发起订单变更";
+      sub.textContent = order.id + " · " + order.client + " · " + order.fishSpecies;
+
+      const isPickup = order.status === "待取件";
+      if (isPickup) {
+        tipEl.textContent = "待取件订单仅可修改价格和备注信息";
+        tipEl.style.display = "block";
+      } else {
+        tipEl.style.display = "none";
+      }
+
+      const fields = ["size", "paper", "inkPlan", "mounting", "inscription", "dueDate", "price"];
+      const restrictedFields = isPickup ? ["price"] : fields;
+
+      fields.forEach(field => {
+        const checkbox = document.querySelector('.cr-field-toggle[data-field="'+field+'"]');
+        const input = document.querySelector("#cr-"+field);
+        if (checkbox && input) {
+          const isEnabled = restrictedFields.includes(field);
+          checkbox.checked = false;
+          checkbox.disabled = !isEnabled;
+          input.disabled = true;
+          input.value = order[field] || "";
+          input.style.opacity = isEnabled ? "1" : "0.5";
+          const label = checkbox.closest("label");
+          if (label) label.style.opacity = isEnabled ? "1" : "0.5";
+        }
+      });
+
+      document.querySelector("#cr-reason").value = "";
+      overlay.classList.add("active");
+    }
+
+    async function submitChangeRequest() {
+      if (!currentChangeOrderId) return;
+      const errorEl = document.querySelector("#cr-error");
+      errorEl.style.display = "none";
+
+      const changes = {};
+      document.querySelectorAll(".cr-field-toggle").forEach(cb => {
+        if (cb.checked) {
+          const field = cb.dataset.field;
+          const input = document.querySelector("#cr-"+field);
+          if (input) {
+            changes[field] = input.value;
+          }
+        }
+      });
+
+      const reason = document.querySelector("#cr-reason").value.trim();
+
+      if (Object.keys(changes).length === 0) {
+        errorEl.textContent = "请至少选择一项要变更的内容";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      try {
+        await api("/api/orders/"+currentChangeOrderId+"/change-requests", {
+          method: "POST",
+          body: JSON.stringify({ changes, reason })
+        });
+        document.querySelector("#change-request-modal").classList.remove("active");
+        alert("变更申请已提交，等待审批");
+        await load();
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    }
+
+    function openChangeDetailModal(changeId) {
+      const cr = changeRequests.find(c => c.id === changeId);
+      if (!cr) return;
+      currentViewingChangeId = changeId;
+      const order = orders.find(o => o.id === cr.orderId);
+      const overlay = document.querySelector("#change-detail-modal");
+      const title = document.querySelector("#cd-modal-title");
+      const sub = document.querySelector("#cd-modal-sub");
+      const detailEl = document.querySelector("#cd-detail");
+      const diffEl = document.querySelector("#cd-diff");
+      const actionsEl = document.querySelector("#cd-actions");
+      const rejectFormEl = document.querySelector("#cd-reject-form");
+
+      title.textContent = "变更申请详情";
+      sub.textContent = cr.orderId + " · " + (order?.client || "") + " · " + (order?.fishSpecies || "");
+
+      const statusLabels = { pending: "待审批", approved: "已通过", rejected: "已驳回" };
+      const statusCls = "cd-status-"+cr.status;
+      detailEl.innerHTML = '<div class="row"><span class="label">申请编号</span><span class="value">'+cr.id+'</span></div>'
+        + '<div class="row"><span class="label">状态</span><span class="value"><span class="cd-status '+statusCls+'">'+statusLabels[cr.status]+'</span></span></div>'
+        + '<div class="row"><span class="label">申请时间</span><span class="value">'+fmtDate(cr.createdAt)+'</span></div>'
+        + '<div class="row"><span class="label">订单状态</span><span class="value">'+(order?.status || "-")+'</span></div>'
+        + (cr.reason ? '<div class="row"><span class="label">变更原因</span><span class="value">'+cr.reason+'</span></div>' : '')
+        + (cr.approver ? '<div class="row"><span class="label">审批人</span><span class="value">'+cr.approver+'</span></div>' : '')
+        + (cr.approvedAt ? '<div class="row"><span class="label">审批时间</span><span class="value">'+fmtDate(cr.approvedAt)+'</span></div>' : '')
+        + (cr.rejectReason ? '<div class="row"><span class="label">驳回原因</span><span class="value" style="color:#9b2c2c;">'+cr.rejectReason+'</span></div>' : '');
+
+      const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+      let diffHtml = '<div style="font-weight:600;margin-bottom:8px;">变更内容对比</div>';
+      diffHtml += '<div class="cd-diff-table">';
+      diffHtml += '<div class="cd-diff-header"><span>项目</span><span>变更前</span><span>变更后</span></div>';
+      for (const [key, newValue] of Object.entries(cr.changes || {})) {
+        const oldValue = cr.original?.[key] || (order?.[key] || "无");
+        const displayNew = newValue || "无";
+        const label = labels[key] || key;
+        diffHtml += '<div class="cd-diff-row">'
+          + '<span class="cd-diff-field">'+label+'</span>'
+          + '<span class="cd-diff-old">'+oldValue+'</span>'
+          + '<span class="cd-diff-new">'+displayNew+'</span>'
+          + '</div>';
+      }
+      diffHtml += '</div>';
+      diffEl.innerHTML = diffHtml;
+
+      if (cr.status === "pending" && order && order.status !== "已完成") {
+        actionsEl.style.display = "grid";
+      } else {
+        actionsEl.style.display = "none";
+      }
+      rejectFormEl.style.display = "none";
+      document.querySelector("#cd-reject-reason").value = "";
+
+      overlay.classList.add("active");
+    }
+
+    async function approveChange() {
+      if (!currentViewingChangeId) return;
+      const cr = changeRequests.find(c => c.id === currentViewingChangeId);
+      if (!cr) return;
+      if (!confirm("确认通过此变更申请？通过后订单信息将更新。")) return;
+      try {
+        await api("/api/orders/"+cr.orderId+"/change-requests/"+cr.id+"/approve", {
+          method: "POST",
+          body: JSON.stringify({ approver: "管理员" })
+        });
+        document.querySelector("#change-detail-modal").classList.remove("active");
+        alert("变更已通过");
+        await load();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function showRejectForm() {
+      document.querySelector("#cd-actions").style.display = "none";
+      document.querySelector("#cd-reject-form").style.display = "block";
+    }
+
+    function cancelReject() {
+      document.querySelector("#cd-actions").style.display = "grid";
+      document.querySelector("#cd-reject-form").style.display = "none";
+    }
+
+    async function confirmReject() {
+      if (!currentViewingChangeId) return;
+      const cr = changeRequests.find(c => c.id === currentViewingChangeId);
+      if (!cr) return;
+      const reason = document.querySelector("#cd-reject-reason").value.trim();
+      if (!reason) {
+        alert("请填写驳回原因");
+        return;
+      }
+      try {
+        await api("/api/orders/"+cr.orderId+"/change-requests/"+cr.id+"/reject", {
+          method: "POST",
+          body: JSON.stringify({ reason })
+        });
+        document.querySelector("#change-detail-modal").classList.remove("active");
+        alert("变更已驳回");
+        await load();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
     function openMaterialModal(materialId) {
       editingMaterialId = materialId || null;
       const overlay = document.querySelector("#material-modal-overlay");
@@ -1310,7 +1661,11 @@ function page() {
         statusText += " (已逾期)";
       }
       const pi = getPaidInfo(order);
-      modalDetail.innerHTML = '<div class="row"><span class="label">委托人</span><span class="value">'+order.client+'</span></div>'
+      const canChange = order.status !== "已完成";
+      const isPickupStage = order.status === "待取件";
+      const changeHistory = order.changeHistory || [];
+      const pendingChanges = changeRequests.filter(c => c.orderId === order.id && c.status === "pending");
+      let html = '<div class="row"><span class="label">委托人</span><span class="value">'+order.client+'</span></div>'
         + '<div class="row"><span class="label">鱼种</span><span class="value">'+order.fishSpecies+'</span></div>'
         + '<div class="row"><span class="label">当前阶段</span><span class="value">'+statusText+'</span></div>'
         + '<div class="row"><span class="label">负责人</span><span class="value">'+order.owner+'</span></div>'
@@ -1319,8 +1674,51 @@ function page() {
         + '<div class="row"><span class="label">已收金额</span><span class="value">¥'+pi.paidTotal+'</span></div>'
         + '<div class="row"><span class="label">未收金额</span><span class="value">¥'+pi.unpaid+'</span></div>'
         + '<div class="row"><span class="label">交付日期</span><span class="value">'+fmtDate(order.dueDate)+'</span></div>'
+        + '<div class="row"><span class="label">尺寸</span><span class="value">'+order.size+'</span></div>'
+        + '<div class="row"><span class="label">纸张</span><span class="value">'+order.paper+'</span></div>'
+        + '<div class="row"><span class="label">墨色方案</span><span class="value">'+(order.inkPlan||"-")+'</span></div>'
         + '<div class="row"><span class="label">装裱方式</span><span class="value">'+order.mounting+'</span></div>'
-        + '<div class="row"><span class="label">纸张</span><span class="value">'+order.paper+'</span></div>';
+        + '<div class="row"><span class="label">题字内容</span><span class="value">'+(order.inscription||"无")+'</span></div>';
+      if (canChange) {
+        html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">';
+        if (pendingChanges.length > 0) {
+          html += '<div style="padding:8px 12px;background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;font-size:13px;color:#8a6d3b;margin-bottom:8px;">⚠️ 有 '+pendingChanges.length+' 条待审批的变更申请</div>';
+        }
+        if (isPickupStage) {
+          html += '<div style="font-size:12px;color:#999;margin-bottom:6px;">待取件订单仅可修改价格和备注</div>';
+        }
+        html += '<button data-change-request="'+order.id+'" style="width:100%;">发起变更申请</button></div>';
+      } else {
+        html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"><div style="font-size:12px;color:#999;text-align:center;">已完成订单不允许变更</div></div>';
+      }
+      if (changeHistory.length > 0 || pendingChanges.length > 0) {
+        html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">';
+        html += '<div style="font-weight:600;margin-bottom:8px;">变更历史</div>';
+        html += '<div class="change-history-list">';
+        const allChanges = [
+          ...changeHistory.map(c => ({ ...c, status: "approved", type: "history" })),
+          ...pendingChanges.map(c => ({ ...c, status: "pending", type: "pending" }))
+        ].sort((a, b) => new Date(b.createdAt || b.approvedAt) - new Date(a.createdAt || a.approvedAt));
+        for (const c of allChanges) {
+          const statusLabel = c.status === "approved" ? "已通过" : "待审批";
+          const statusClass = c.status === "approved" ? "status-approved" : "status-pending";
+          const changeDesc = Object.entries(c.changes || {})
+            .map(([key, val]) => {
+              const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+              return labels[key] || key;
+            })
+            .join("、");
+          html += '<div class="change-history-item"><div class="change-history-header"><span class="change-history-status '+statusClass+'">'+statusLabel+'</span><span class="change-history-date">'+fmtDate(c.approvedAt || c.createdAt)+'</span></div><div class="change-history-desc">变更内容：'+changeDesc+'</div>';
+          if (c.reason) html += '<div class="change-history-reason">原因：'+c.reason+'</div>';
+          html += '</div>';
+        }
+        html += '</div></div>';
+      }
+      modalDetail.innerHTML = html;
+      const changeBtn = modalDetail.querySelector('[data-change-request]');
+      if (changeBtn) {
+        changeBtn.onclick = () => openChangeRequestModal(order.id);
+      }
       modalOverlay.classList.add("active");
     }
 
@@ -1702,6 +2100,7 @@ function page() {
       else if (currentTab === "works") renderWorks();
       else if (currentTab === "customers") renderCustomers();
       else if (currentTab === "materials") renderMaterials();
+      else if (currentTab === "changes") renderChanges();
     }
 
     async function load() {
@@ -1710,6 +2109,7 @@ function page() {
       customers = await api("/api/customers");
       assignees = await api("/api/assignees");
       materials = await api("/api/materials");
+      changeRequests = await api("/api/change-requests");
       if (currentTab === "calendar") {
         calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
       }
@@ -1749,6 +2149,9 @@ function page() {
       } else if (currentTab === "materials") {
         materials = await api("/api/materials");
         materialTransactions = await api("/api/materials/transactions");
+        render();
+      } else if (currentTab === "changes") {
+        changeRequests = await api("/api/change-requests");
         render();
       } else {
         render();
@@ -2008,6 +2411,48 @@ function page() {
         errorEl.style.display = "block";
       }
     };
+
+    document.querySelector("#changes-filter")?.addEventListener("change", (e) => {
+      changesFilter = e.target.value;
+      renderChanges();
+    });
+
+    document.querySelectorAll(".cr-field-toggle").forEach(cb => {
+      cb.addEventListener("change", (e) => {
+        const field = e.target.dataset.field;
+        const input = document.querySelector("#cr-"+field);
+        if (input) {
+          input.disabled = !e.target.checked;
+        }
+      });
+    });
+
+    document.querySelector("#cr-cancel").onclick = () => {
+      document.querySelector("#change-request-modal").classList.remove("active");
+      currentChangeOrderId = null;
+    };
+    document.querySelector("#change-request-modal").onclick = (e) => {
+      if (e.target.id === "change-request-modal") {
+        document.querySelector("#change-request-modal").classList.remove("active");
+        currentChangeOrderId = null;
+      }
+    };
+    document.querySelector("#cr-submit").onclick = submitChangeRequest;
+
+    document.querySelector("#cd-close").onclick = () => {
+      document.querySelector("#change-detail-modal").classList.remove("active");
+      currentViewingChangeId = null;
+    };
+    document.querySelector("#change-detail-modal").onclick = (e) => {
+      if (e.target.id === "change-detail-modal") {
+        document.querySelector("#change-detail-modal").classList.remove("active");
+        currentViewingChangeId = null;
+      }
+    };
+    document.querySelector("#cd-approve").onclick = approveChange;
+    document.querySelector("#cd-reject").onclick = showRejectForm;
+    document.querySelector("#cd-reject-cancel").onclick = cancelReject;
+    document.querySelector("#cd-reject-confirm").onclick = confirmReject;
 
     document.querySelector("#toggle-new-customer").onclick = () => {
       const sub = document.querySelector("#new-customer-subform");
@@ -2863,6 +3308,164 @@ const server = http.createServer(async (req, res) => {
         await saveDb(db);
         return sendJson(res, 200, { ok: true });
       }
+    }
+    if (req.method === "GET" && url.pathname === "/api/change-requests") {
+      const statusFilter = url.searchParams.get("status");
+      let list = db.orderChanges || [];
+      if (statusFilter) {
+        list = list.filter(c => c.status === statusFilter);
+      }
+      const withOrderInfo = list.map(cr => {
+        const order = db.orders.find(o => o.id === cr.orderId);
+        return {
+          ...cr,
+          orderClient: order ? order.client : "",
+          orderFishSpecies: order ? order.fishSpecies : "",
+          orderStatus: order ? order.status : ""
+        };
+      });
+      withOrderInfo.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return sendJson(res, 200, withOrderInfo);
+    }
+    const changeListMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests$/);
+    if (changeListMatch) {
+      const order = db.orders.find(item => item.id === changeListMatch[1]);
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      if (req.method === "GET") {
+        const changes = (db.orderChanges || []).filter(c => c.orderId === order.id);
+        changes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return sendJson(res, 200, changes);
+      }
+      if (req.method === "POST") {
+        if (order.status === "已完成") {
+          return sendJson(res, 400, { error: "已完成订单不允许变更" });
+        }
+        const input = await body(req);
+        const changes = input.changes || {};
+        const allowedFields = ["size", "inkPlan", "inscription", "dueDate", "price", "note", "paper", "mounting"];
+        if (order.status === "待取件") {
+          const pickupAllowed = ["price", "note"];
+          for (const key of Object.keys(changes)) {
+            if (!pickupAllowed.includes(key)) {
+              return sendJson(res, 400, { error: "待取件订单只能修改价格和备注相关信息" });
+            }
+          }
+        }
+        const validChanges = {};
+        for (const key of Object.keys(changes)) {
+          if (allowedFields.includes(key) && changes[key] !== undefined) {
+            validChanges[key] = changes[key];
+          }
+        }
+        if (Object.keys(validChanges).length === 0) {
+          return sendJson(res, 400, { error: "没有有效的变更内容" });
+        }
+        const original = {};
+        for (const key of Object.keys(validChanges)) {
+          original[key] = order[key] || "";
+        }
+        const changeId = `CR-${Date.now()}`;
+        const changeRequest = {
+          id: changeId,
+          orderId: order.id,
+          status: "pending",
+          changes: validChanges,
+          original,
+          reason: input.reason || "",
+          createdAt: new Date().toISOString(),
+          approvedAt: null,
+          rejectedAt: null,
+          approver: "",
+          rejectReason: ""
+        };
+        db.orderChanges.push(changeRequest);
+        await saveDb(db);
+        return sendJson(res, 201, changeRequest);
+      }
+    }
+    const changeApproveMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/([^/]+)\/approve$/);
+    if (changeApproveMatch && req.method === "POST") {
+      const order = db.orders.find(item => item.id === changeApproveMatch[1]);
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      const cr = (db.orderChanges || []).find(c => c.id === changeApproveMatch[2]);
+      if (!cr) return sendJson(res, 404, { error: "change_request_not_found" });
+      if (cr.status !== "pending") {
+        return sendJson(res, 400, { error: "该变更申请已处理，无法重复审批" });
+      }
+      if (order.status === "已完成") {
+        return sendJson(res, 400, { error: "已完成订单不允许变更" });
+      }
+      const input = await body(req);
+      cr.status = "approved";
+      cr.approvedAt = new Date().toISOString();
+      cr.approver = input.approver || "系统";
+      const oldValues = {};
+      for (const [key, value] of Object.entries(cr.changes)) {
+        oldValues[key] = order[key] || "";
+        order[key] = value;
+      }
+      const needMaterialRecalc = ["size", "paper", "inkPlan", "mounting"].some(k => k in cr.changes);
+      if (needMaterialRecalc && order.materialUsage && order.status !== "已完成" && !order.materialDeducted) {
+        for (const [matId, qty] of Object.entries(order.materialUsage)) {
+          const mat = db.materials.find(m => m.id === matId);
+          if (mat) {
+            mat.reserved = Math.max(0, (mat.reserved || 0) - qty);
+          }
+        }
+        order.materialUsage = estimateMaterialUsage(order);
+        for (const [matId, qty] of Object.entries(order.materialUsage)) {
+          const mat = db.materials.find(m => m.id === matId);
+          if (mat) {
+            mat.reserved = (mat.reserved || 0) + qty;
+          }
+        }
+      }
+      const changeDesc = Object.entries(cr.changes)
+        .map(([key, value]) => {
+          const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+          const label = labels[key] || key;
+          const oldVal = oldValues[key] || "无";
+          const newVal = value || "无";
+          return `${label}：${oldVal} → ${newVal}`;
+        })
+        .join("；");
+      order.history.push({
+        at: new Date().toISOString(),
+        stage: order.status,
+        note: `[订单变更] ${changeDesc} - 原因：${cr.reason || "未填写"}`
+      });
+      if (!order.changeHistory) order.changeHistory = [];
+      order.changeHistory.push({
+        id: cr.id,
+        changes: cr.changes,
+        original: cr.original,
+        reason: cr.reason,
+        approvedAt: cr.approvedAt,
+        approver: cr.approver
+      });
+      await saveDb(db);
+      return sendJson(res, 200, { ...cr, order });
+    }
+    const changeRejectMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/([^/]+)\/reject$/);
+    if (changeRejectMatch && req.method === "POST") {
+      const order = db.orders.find(item => item.id === changeRejectMatch[1]);
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      const cr = (db.orderChanges || []).find(c => c.id === changeRejectMatch[2]);
+      if (!cr) return sendJson(res, 404, { error: "change_request_not_found" });
+      if (cr.status !== "pending") {
+        return sendJson(res, 400, { error: "该变更申请已处理，无法重复审批" });
+      }
+      const input = await body(req);
+      cr.status = "rejected";
+      cr.rejectedAt = new Date().toISOString();
+      cr.rejectReason = input.reason || "";
+      order.history.push({
+        at: new Date().toISOString(),
+        stage: order.status,
+        note: `[变更驳回] 原因：${cr.rejectReason || "未填写"}；申请变更：${Object.keys(cr.changes).join("、")}`
+      });
+      await saveDb(db);
+      return sendJson(res, 200, cr);
     }
     sendJson(res, 404, { error: "not_found" });
   } catch (error) {

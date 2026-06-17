@@ -77,11 +77,11 @@
       "id": "FT-2601",
       "client": "沈钧",
       "fishSpecies": "真鲷",
-      "size": "70x35cm",
+      "size": "80x40cm",
       "paper": "手工楮皮纸",
-      "inkPlan": "淡墨鱼身，朱砂题款",
+      "inkPlan": "浓墨鱼身，朱砂题款",
       "mounting": "立轴",
-      "inscription": "海上清风",
+      "inscription": "海阔凭鱼跃",
       "owner": "阿青",
       "price": 1800,
       "paid": false,
@@ -120,6 +120,21 @@
           "at": "2026-06-13T15:30:00.000Z",
           "stage": "晾干中",
           "note": "完成右侧直接拓印"
+        },
+        {
+          "at": "2026-06-17T12:00:38.061Z",
+          "stage": "晾干中",
+          "note": "[变更申请] 客户要求修改尺寸和题字 - 涉及拓印尺寸、题字内容"
+        },
+        {
+          "at": "2026-06-17T12:00:55.846Z",
+          "stage": "晾干中",
+          "note": "[变更确认] 拓印尺寸：70x35cm → 80x40cm；题字内容：海上清风 → 海阔凭鱼跃 - 确认变更"
+        },
+        {
+          "at": "2026-06-17T13:42:04.507Z",
+          "stage": "晾干中",
+          "note": "[订单变更] 尺寸：80x40cm → 80x40cm；墨色方案：淡墨鱼身，朱砂题款 → 浓墨鱼身，朱砂题款 - 原因：客户要求加大尺寸并调整墨色"
         }
       ],
       "materialUsage": {
@@ -128,7 +143,44 @@
         "M-005": 2,
         "M-006": 1
       },
-      "customerId": "C-1781693865536-6l9t"
+      "customerId": "C-1781693865536-6l9t",
+      "changeRequests": [
+        {
+          "id": "CR-1781697638061",
+          "status": "已确认",
+          "changes": {
+            "size": "80x40cm",
+            "inscription": "海阔凭鱼跃"
+          },
+          "originalData": {
+            "size": "70x35cm",
+            "inscription": "海上清风"
+          },
+          "reason": "客户要求修改尺寸和题字",
+          "applicant": "测试员",
+          "createdAt": "2026-06-17T12:00:38.061Z",
+          "approvedAt": "2026-06-17T12:00:55.846Z",
+          "rejectedAt": null,
+          "rejectReason": null,
+          "approver": "测试员"
+        }
+      ],
+      "changeHistory": [
+        {
+          "id": "CR-1781703713066",
+          "changes": {
+            "size": "80x40cm",
+            "inkPlan": "浓墨鱼身，朱砂题款"
+          },
+          "original": {
+            "size": "80x40cm",
+            "inkPlan": "淡墨鱼身，朱砂题款"
+          },
+          "reason": "客户要求加大尺寸并调整墨色",
+          "approvedAt": "2026-06-17T13:42:04.507Z",
+          "approver": "测试员"
+        }
+      ]
     },
     {
       "id": "FT-2600",
@@ -230,7 +282,8 @@
           "note": "客户取件并结清"
         }
       ],
-      "customerId": "C-1781693865584-dqi3"
+      "customerId": "C-1781693865584-dqi3",
+      "changeHistory": []
     }
   ],
   "works": [
@@ -303,5 +356,46 @@
     }
   ],
   "_customerMigrated": true,
-  "_tasksMigrated": true
+  "_tasksMigrated": true,
+  "orderChanges": [
+    {
+      "id": "CR-1781703713066",
+      "orderId": "FT-2601",
+      "status": "approved",
+      "changes": {
+        "size": "80x40cm",
+        "inkPlan": "浓墨鱼身，朱砂题款"
+      },
+      "original": {
+        "size": "80x40cm",
+        "inkPlan": "淡墨鱼身，朱砂题款"
+      },
+      "reason": "客户要求加大尺寸并调整墨色",
+      "createdAt": "2026-06-17T13:41:53.066Z",
+      "approvedAt": "2026-06-17T13:42:04.507Z",
+      "rejectedAt": null,
+      "approver": "测试员",
+      "rejectReason": ""
+    },
+    {
+      "id": "CR-1781704341139",
+      "orderId": "FT-2601",
+      "status": "pending",
+      "changes": {
+        "dueDate": "2026-06-30",
+        "inscription": "鱼跃龙门"
+      },
+      "original": {
+        "dueDate": "2026-06-24",
+        "inscription": "海阔凭鱼跃"
+      },
+      "reason": "客户要求延期并改题字",
+      "createdAt": "2026-06-17T13:52:21.139Z",
+      "approvedAt": null,
+      "rejectedAt": null,
+      "approver": "",
+      "rejectReason": ""
+    }
+  ],
+  "_changeRequestMigrated": true
 }
