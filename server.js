@@ -149,7 +149,46 @@ function page() {
     .detail div { font-size:14px; }
     .detail .label { color:var(--muted); font-size:12px; display:inline-block; min-width:70px; }
     .divider { height:1px; background:var(--line); margin:4px 0; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1fr; } .stat-total { grid-column:span 2; } }
+    .calendar-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
+    .calendar-nav { display:flex; gap:8px; align-items:center; }
+    .calendar-nav button { padding:6px 14px; font-size:14px; }
+    .calendar-title { font-size:20px; font-weight:700; }
+    .calendar-today { background:var(--warn); }
+    .calendar-weekdays { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-bottom:2px; }
+    .calendar-weekday { text-align:center; padding:10px; font-weight:700; color:var(--muted); font-size:13px; background:var(--panel); border:1px solid var(--line); border-radius:6px; }
+    .calendar-weekday.weekend { color:#a65b2a; }
+    .calendar-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; background:var(--line); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .calendar-day { min-height:110px; background:var(--panel); padding:8px; display:flex; flex-direction:column; gap:4px; }
+    .calendar-day.other-month { background:#f5f8f7; opacity:0.6; }
+    .calendar-day.today { background:#fff9f3; box-shadow:inset 0 0 0 2px var(--warn); }
+    .calendar-day.weekend .day-num { color:#a65b2a; }
+    .day-num { font-weight:700; font-size:14px; color:var(--ink); }
+    .calendar-orders { display:flex; flex-direction:column; gap:3px; flex:1; overflow:hidden; }
+    .calendar-order { font-size:11px; padding:3px 6px; border-radius:4px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border:1px solid transparent; transition:all 0.15s; }
+    .calendar-order:hover { transform:translateY(-1px); box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+    .calendar-order.unpaid { background:#fde8d8; color:#8a4a1e; border-color:#e6c9ab; }
+    .calendar-order.paid { background:#dff0ed; color:#1e5854; border-color:#bcd8d4; }
+    .calendar-order.overdue { background:#fce4e4; color:#9b2c2c; border-color:#e8b4b4; }
+    .calendar-order.completed { background:#e8f0e8; color:#3f6b3f; border-color:#c5dcc5; }
+    .modal-overlay { position:fixed; inset:0; background:rgba(30,43,45,0.55); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; }
+    .modal-overlay.active { display:flex; }
+    .modal { background:var(--panel); border-radius:10px; max-width:480px; width:100%; padding:22px; border:1px solid var(--line); box-shadow:0 12px 40px rgba(0,0,0,0.18); }
+    .modal h3 { margin:0 0 6px; font-size:18px; }
+    .modal .modal-sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+    .modal-detail { display:grid; gap:10px; }
+    .modal-detail .row { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+    .modal-detail .row:last-child { border-bottom:none; }
+    .modal-detail .label { color:var(--muted); font-size:13px; min-width:80px; }
+    .modal-detail .value { font-weight:600; text-align:right; }
+    .modal-close { margin-top:18px; width:100%; padding:10px; }
+    .calendar-legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:14px; font-size:12px; color:var(--muted); }
+    .calendar-legend span { display:inline-flex; align-items:center; gap:5px; }
+    .legend-dot { display:inline-block; width:12px; height:12px; border-radius:3px; border:1px solid var(--line); }
+    .legend-dot.unpaid { background:#fde8d8; border-color:#e6c9ab; }
+    .legend-dot.paid { background:#dff0ed; border-color:#bcd8d4; }
+    .legend-dot.overdue { background:#fce4e4; border-color:#e8b4b4; }
+    .legend-dot.completed { background:#e8f0e8; border-color:#c5dcc5; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1fr; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } }
   </style>
 </head>
 <body>
@@ -157,6 +196,7 @@ function page() {
   <main>
     <div class="tabs">
       <div class="tab active" data-tab="orders">委托单管理</div>
+      <div class="tab" data-tab="calendar">交付日历</div>
       <div class="tab" data-tab="works">作品档案</div>
     </div>
 
@@ -184,6 +224,29 @@ function page() {
       </div>
     </div>
 
+    <div class="tab-content" id="tab-calendar">
+      <div class="calendar-header">
+        <div class="calendar-nav">
+          <button id="cal-prev">‹ 上月</button>
+          <button id="cal-today">今天</button>
+          <button id="cal-next">下月 ›</button>
+        </div>
+        <div class="calendar-title" id="cal-title"></div>
+        <div class="calendar-nav">
+          <select id="cal-year"></select>
+          <select id="cal-month"></select>
+        </div>
+      </div>
+      <div class="calendar-weekdays" id="cal-weekdays"></div>
+      <div class="calendar-grid" id="cal-grid"></div>
+      <div class="calendar-legend">
+        <span><span class="legend-dot unpaid"></span>未收款</span>
+        <span><span class="legend-dot paid"></span>已收款</span>
+        <span><span class="legend-dot overdue"></span>逾期未完成</span>
+        <span><span class="legend-dot completed"></span>已完成</span>
+      </div>
+    </div>
+
     <div class="tab-content" id="tab-works">
       <div class="stats" id="works-stats"></div>
       <div class="toolbar">
@@ -195,11 +258,22 @@ function page() {
       <div class="grid" id="works"></div>
     </div>
   </main>
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h3 id="modal-title"></h3>
+      <div class="modal-sub" id="modal-sub"></div>
+      <div class="modal-detail" id="modal-detail"></div>
+      <button class="modal-close" id="modal-close">关闭</button>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
     let orders = [];
     let works = [];
     let currentTab = "orders";
+    let calendarOrders = [];
+    let currentYear = new Date().getFullYear();
+    let currentMonth = new Date().getMonth() + 1;
 
     async function api(path, options) {
       const res = await fetch(path, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
@@ -281,30 +355,189 @@ function page() {
       worksEl.innerHTML = filtered.map(w => '<article class="card"><div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div><div class="meta">编号 '+w.id+' · 委托人 '+w.client+'</div><div class="divider"></div><div class="detail"><div><span class="label">尺寸</span>'+w.size+'</div><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色方案</span>'+w.inkPlan+'</div><div><span class="label">题字</span>'+(w.inscription || "无")+'</div><div><span class="label">负责人</span>'+w.owner+'</div><div><span class="label">完成时间</span>'+fmtDate(w.completedAt)+'</div></div></article>').join("");
     }
 
+    function getOrderClass(order) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dueDate = new Date(order.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      if (order.status === "已完成") return "completed";
+      if (dueDate < today) return "overdue";
+      return order.paid ? "paid" : "unpaid";
+    }
+
+    function showOrderDetail(orderId) {
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return;
+      const modalOverlay = document.querySelector("#modal-overlay");
+      const modalTitle = document.querySelector("#modal-title");
+      const modalSub = document.querySelector("#modal-sub");
+      const modalDetail = document.querySelector("#modal-detail");
+      modalTitle.textContent = order.id + " · " + order.client;
+      modalSub.textContent = order.fishSpecies + " · " + order.size;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dueDate = new Date(order.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      let statusText = order.status;
+      if (order.status !== "已完成" && dueDate < today) {
+        statusText += " (已逾期)";
+      }
+      modalDetail.innerHTML = '<div class="row"><span class="label">委托人</span><span class="value">'+order.client+'</span></div>'
+        + '<div class="row"><span class="label">鱼种</span><span class="value">'+order.fishSpecies+'</span></div>'
+        + '<div class="row"><span class="label">当前阶段</span><span class="value">'+statusText+'</span></div>'
+        + '<div class="row"><span class="label">负责人</span><span class="value">'+order.owner+'</span></div>'
+        + '<div class="row"><span class="label">收款状态</span><span class="value">'+(order.paid ? "已收款" : "未收款")+'</span></div>'
+        + '<div class="row"><span class="label">报价</span><span class="value">'+order.price+' 元</span></div>'
+        + '<div class="row"><span class="label">交付日期</span><span class="value">'+fmtDate(order.dueDate)+'</span></div>'
+        + '<div class="row"><span class="label">装裱方式</span><span class="value">'+order.mounting+'</span></div>'
+        + '<div class="row"><span class="label">纸张</span><span class="value">'+order.paper+'</span></div>';
+      modalOverlay.classList.add("active");
+    }
+
+    function renderCalendar() {
+      const titleEl = document.querySelector("#cal-title");
+      const gridEl = document.querySelector("#cal-grid");
+      const weekdaysEl = document.querySelector("#cal-weekdays");
+      const yearSelect = document.querySelector("#cal-year");
+      const monthSelect = document.querySelector("#cal-month");
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+      weekdaysEl.innerHTML = weekdays.map((w, i) => '<div class="calendar-weekday '+(i === 0 || i === 6 ? "weekend" : "")+'">'+w+'</div>').join("");
+      yearSelect.innerHTML = "";
+      for (let y = today.getFullYear() - 2; y <= today.getFullYear() + 2; y++) {
+        const opt = document.createElement("option");
+        opt.value = y;
+        opt.textContent = y + " 年";
+        yearSelect.appendChild(opt);
+      }
+      monthSelect.innerHTML = "";
+      for (let m = 1; m <= 12; m++) {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m + " 月";
+        monthSelect.appendChild(opt);
+      }
+      yearSelect.value = currentYear;
+      monthSelect.value = currentMonth;
+      titleEl.textContent = currentYear + " 年 " + currentMonth + " 月";
+      const firstDay = new Date(currentYear, currentMonth - 1, 1);
+      const lastDay = new Date(currentYear, currentMonth, 0);
+      const startWeekday = firstDay.getDay();
+      const daysInMonth = lastDay.getDate();
+      const ordersByDay = {};
+      calendarOrders.forEach(o => {
+        const d = new Date(o.dueDate).getDate();
+        if (!ordersByDay[d]) ordersByDay[d] = [];
+        ordersByDay[d].push(o);
+      });
+      let html = "";
+      for (let i = 0; i < startWeekday; i++) {
+        const day = new Date(currentYear, currentMonth - 1, -startWeekday + i + 1);
+        const dayNum = day.getDate();
+        const dayOrders = [];
+        html += '<div class="calendar-day other-month"><span class="day-num">'+dayNum+'</span><div class="calendar-orders"></div></div>';
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(currentYear, currentMonth - 1, d);
+        const weekday = date.getDay();
+        const isToday = date.getTime() === today.getTime();
+        const isWeekend = weekday === 0 || weekday === 6;
+        const dayOrders = ordersByDay[d] || [];
+        let dayClass = "calendar-day";
+        if (isToday) dayClass += " today";
+        if (isWeekend) dayClass += " weekend";
+        html += '<div class="'+dayClass+'"><span class="day-num">'+d+'</span><div class="calendar-orders">';
+        dayOrders.slice(0, 3).forEach(o => {
+          const cls = getOrderClass(o);
+          const title = o.client + " · " + o.fishSpecies + " · " + o.status + " · " + (o.paid ? "已收款" : "未收款");
+          html += '<div class="calendar-order '+cls+'" data-order-id="'+o.id+'" title="'+title+'">'+o.client+' · '+o.fishSpecies+'</div>';
+        });
+        if (dayOrders.length > 3) {
+          html += '<div class="calendar-order" style="background:#eef4f1;color:#667777;text-align:center;">+ '+(dayOrders.length - 3)+' 更多</div>';
+        }
+        html += '</div></div>';
+      }
+      const totalCells = startWeekday + daysInMonth;
+      const remainingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+      for (let i = 1; i <= remainingCells; i++) {
+        html += '<div class="calendar-day other-month"><span class="day-num">'+i+'</span><div class="calendar-orders"></div></div>';
+      }
+      gridEl.innerHTML = html;
+      document.querySelectorAll(".calendar-order[data-order-id]").forEach(el => {
+        el.onclick = () => showOrderDetail(el.dataset.orderId);
+      });
+    }
+
     function render() {
       if (currentTab === "orders") renderOrders();
+      else if (currentTab === "calendar") renderCalendar();
       else renderWorks();
     }
 
     async function load() {
       orders = await api("/api/orders");
       works = await api("/api/works");
+      if (currentTab === "calendar") {
+        calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
+      }
       render();
     }
 
-    document.querySelectorAll(".tab").forEach(tab => tab.onclick = () => {
+    async function loadCalendar() {
+      calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
+      renderCalendar();
+    }
+
+    document.querySelectorAll(".tab").forEach(tab => tab.onclick = async () => {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
       tab.classList.add("active");
       currentTab = tab.dataset.tab;
       document.querySelector("#tab-"+currentTab).classList.add("active");
-      render();
+      if (currentTab === "calendar") {
+        await loadCalendar();
+      } else {
+        render();
+      }
     });
 
     document.querySelector("#filter").onchange = renderOrders;
     document.querySelector("#filter-species").onchange = renderWorks;
     document.querySelector("#filter-mounting").onchange = renderWorks;
     document.querySelector("#reload").onclick = load;
+
+    document.querySelector("#cal-prev").onclick = () => {
+      currentMonth--;
+      if (currentMonth < 1) { currentMonth = 12; currentYear--; }
+      loadCalendar();
+    };
+    document.querySelector("#cal-next").onclick = () => {
+      currentMonth++;
+      if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+      loadCalendar();
+    };
+    document.querySelector("#cal-today").onclick = () => {
+      currentYear = new Date().getFullYear();
+      currentMonth = new Date().getMonth() + 1;
+      loadCalendar();
+    };
+    document.querySelector("#cal-year").onchange = () => {
+      currentYear = Number(document.querySelector("#cal-year").value);
+      loadCalendar();
+    };
+    document.querySelector("#cal-month").onchange = () => {
+      currentMonth = Number(document.querySelector("#cal-month").value);
+      loadCalendar();
+    };
+    document.querySelector("#modal-close").onclick = () => {
+      document.querySelector("#modal-overlay").classList.remove("active");
+    };
+    document.querySelector("#modal-overlay").onclick = (e) => {
+      if (e.target.id === "modal-overlay") {
+        document.querySelector("#modal-overlay").classList.remove("active");
+      }
+    };
 
     document.querySelector("#form").onsubmit = async (event) => {
       event.preventDefault();
@@ -328,6 +561,18 @@ const server = http.createServer(async (req, res) => {
       return res.end(page());
     }
     if (req.method === "GET" && url.pathname === "/api/orders") return sendJson(res, 200, db.orders);
+    if (req.method === "GET" && url.pathname === "/api/orders/calendar") {
+      const year = Number(url.searchParams.get("year"));
+      const month = Number(url.searchParams.get("month"));
+      if (!year || !month) return sendJson(res, 400, { error: "year_and_month_required" });
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+      const filtered = db.orders.filter(o => {
+        const due = new Date(o.dueDate);
+        return due >= startDate && due <= endDate;
+      });
+      return sendJson(res, 200, filtered);
+    }
     if (req.method === "POST" && url.pathname === "/api/orders") {
       const input = await body(req);
       const order = { id: `FT-${Date.now()}`, ...input, price: Number(input.price || 0), paid: false, status: "待拓印", history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }] };

@@ -1,6 +1,28 @@
 {
   "orders": [
     {
+      "id": "FT-1781672290093",
+      "client": "测试客户",
+      "fishSpecies": "鲤鱼",
+      "size": "50x25cm",
+      "paper": "云母宣",
+      "inkPlan": "浓淡墨渐变",
+      "mounting": "镜片",
+      "inscription": "年年有余",
+      "owner": "阿青",
+      "price": 1200,
+      "dueDate": "2026-07-15",
+      "paid": false,
+      "status": "待拓印",
+      "history": [
+        {
+          "at": "2026-06-17T04:58:10.093Z",
+          "stage": "待拓印",
+          "note": "新委托接单"
+        }
+      ]
+    },
+    {
       "id": "FT-2601",
       "client": "沈钧",
       "fishSpecies": "真鲷",
