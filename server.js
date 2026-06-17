@@ -10,9 +10,48 @@ const port = Number(process.env.PORT || 3022);
 
 const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
 const seed = {
+  customers: [
+    {
+      id: "C-001",
+      name: "沈钧",
+      phone: "13800138001",
+      wechat: "shenjun_fish",
+      address: "上海市静安区南京西路1234号",
+      note: "偏好红色印章，喜欢立轴装裱",
+      createdAt: "2026-01-10T09:00:00.000Z"
+    },
+    {
+      id: "C-002",
+      name: "周明远",
+      phone: "13900139002",
+      wechat: "zhoumingyuan",
+      address: "杭州市西湖区龙井路88号",
+      note: "老客户，每年定期有作品需求",
+      createdAt: "2026-02-15T10:00:00.000Z"
+    },
+    {
+      id: "C-003",
+      name: "李渔",
+      phone: "13700137003",
+      wechat: "liyufishing",
+      address: "苏州市姑苏区平江路200号",
+      note: "鲈鱼爱好者",
+      createdAt: "2026-03-01T14:00:00.000Z"
+    },
+    {
+      id: "C-004",
+      name: "张潮",
+      phone: "13600136004",
+      wechat: "zhangchao_art",
+      address: "南京市玄武区长江路100号",
+      note: "偏好册页形式",
+      createdAt: "2026-03-20T11:00:00.000Z"
+    }
+  ],
   orders: [
     {
       id: "FT-2601",
+      customerId: "C-001",
       client: "沈钧",
       fishSpecies: "真鲷",
       size: "70x35cm",
@@ -33,6 +72,7 @@ const seed = {
     },
     {
       id: "FT-2600",
+      customerId: "C-002",
       client: "周明远",
       fishSpecies: "黑鲷",
       size: "60x30cm",
@@ -63,6 +103,7 @@ const seed = {
     {
       id: "W-001",
       orderId: "FT-2599",
+      customerId: "C-003",
       client: "李渔",
       fishSpecies: "鲈鱼",
       size: "80x40cm",
@@ -76,6 +117,7 @@ const seed = {
     {
       id: "W-002",
       orderId: "FT-2598",
+      customerId: "C-004",
       client: "张潮",
       fishSpecies: "真鲷",
       size: "65x32cm",
@@ -94,11 +136,90 @@ async function loadDb() {
     await mkdir(dirname(dbPath), { recursive: true });
     await writeFile(dbPath, JSON.stringify(seed, null, 2));
   }
-  return JSON.parse(await readFile(dbPath, "utf8"));
+  const db = JSON.parse(await readFile(dbPath, "utf8"));
+  await migrateLegacyData(db);
+  return db;
 }
 
 async function saveDb(db) {
   await writeFile(dbPath, JSON.stringify(db, null, 2));
+}
+
+let migrated = false;
+async function migrateLegacyData(db) {
+  if (migrated) return;
+  let changed = false;
+  if (!db.customers) { db.customers = []; changed = true; }
+  const nameToId = new Map(db.customers.map(c => [c.name, c.id]));
+  function ensureCustomer(name) {
+    if (!name) return null;
+    if (nameToId.has(name)) return nameToId.get(name);
+    const id = `C-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const customer = {
+      id,
+      name,
+      phone: "",
+      wechat: "",
+      address: "",
+      note: "",
+      createdAt: new Date().toISOString()
+    };
+    db.customers.push(customer);
+    nameToId.set(name, id);
+    changed = true;
+    return id;
+  }
+  if (Array.isArray(db.orders)) {
+    for (const order of db.orders) {
+      if (!order.customerId && order.client) {
+        order.customerId = ensureCustomer(order.client);
+        changed = true;
+      }
+    }
+  }
+  if (Array.isArray(db.works)) {
+    for (const work of db.works) {
+      if (!work.customerId && work.client) {
+        work.customerId = ensureCustomer(work.client);
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    await saveDb(db);
+  }
+  migrated = true;
+}
+
+function enrichCustomer(customer, orders, works) {
+  const cOrders = orders.filter(o => o.customerId === customer.id);
+  const cWorks = works.filter(w => w.customerId === customer.id);
+  const allItems = [...cOrders, ...cWorks];
+  const totalPaid = cOrders.reduce((s, o) => s + (o.payments || []).reduce((a, p) => a + p.amount, 0), 0);
+  const totalSpent = cOrders.reduce((s, o) => {
+    const paid = (o.payments || []).reduce((a, p) => a + p.amount, 0);
+    if (o.paid && paid === 0) return s + (o.price || 0);
+    return s + paid;
+  }, 0);
+  const paperCount = {};
+  const mountingCount = {};
+  allItems.forEach(item => {
+    if (item.paper) paperCount[item.paper] = (paperCount[item.paper] || 0) + 1;
+    if (item.mounting) mountingCount[item.mounting] = (mountingCount[item.mounting] || 0) + 1;
+  });
+  const preferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const preferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const pendingOrders = cOrders.filter(o => o.status !== "已完成").length;
+  return {
+    ...customer,
+    orderCount: cOrders.length,
+    workCount: cWorks.length,
+    pendingOrders,
+    totalPaid,
+    totalSpent,
+    preferredPaper,
+    preferredMounting
+  };
 }
 
 async function body(req) {
@@ -210,7 +331,40 @@ function page() {
     .legend-dot.paid { background:#dff0ed; border-color:#bcd8d4; }
     .legend-dot.overdue { background:#fce4e4; border-color:#e8b4b4; }
     .legend-dot.completed { background:#e8f0e8; border-color:#c5dcc5; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1fr; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } }
+    .customer-stats { display:grid; grid-template-columns:repeat(4,minmax(100px,1fr)); gap:10px; margin-bottom:14px; }
+    .customer-stats .stat-total { grid-column:span 4; }
+    .customer-card { position:relative; }
+    .customer-card .customer-name { font-size:18px; font-weight:700; margin:0; }
+    .customer-card .customer-id { font-size:11px; color:var(--muted); }
+    .customer-card .customer-contact { margin-top:6px; font-size:13px; color:var(--muted); display:grid; gap:2px; }
+    .customer-card .customer-stats-mini { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); text-align:center; }
+    .customer-card .customer-stats-mini div { font-size:12px; color:var(--muted); }
+    .customer-card .customer-stats-mini strong { display:block; font-size:18px; color:var(--ink); }
+    .customer-card .customer-preferences { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+    .customer-detail-layout { display:grid; grid-template-columns:320px 1fr; gap:20px; }
+    .customer-info-panel .info-row { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+    .customer-info-panel .info-row:last-child { border-bottom:none; }
+    .customer-info-panel .info-label { color:var(--muted); font-size:12px; }
+    .customer-info-panel .info-value { text-align:right; font-weight:600; word-break:break-all; }
+    .customer-detail-tabs { display:flex; gap:4px; margin-bottom:14px; border-bottom:2px solid var(--line); }
+    .customer-detail-tab { padding:8px 16px; cursor:pointer; color:var(--muted); font-weight:600; border-bottom:2px solid transparent; margin-bottom:-2px; }
+    .customer-detail-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .customer-detail-content { display:none; }
+    .customer-detail-content.active { display:block; }
+    .customer-note { margin-top:10px; padding:10px; background:var(--bg); border-radius:6px; font-size:13px; color:var(--ink); }
+    .client-select-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; }
+    .client-select-row button { padding:9px 14px; white-space:nowrap; }
+    .toggle-link { color:var(--accent); cursor:pointer; font-size:13px; text-decoration:underline; display:inline-block; margin-top:4px; }
+    .sub-form { margin-top:8px; padding:12px; background:var(--bg); border-radius:6px; display:none; }
+    .sub-form.active { display:block; }
+    .sub-form h4 { margin:0 0 8px; font-size:14px; }
+    .back-btn { background:var(--muted); margin-right:8px; }
+    .section-title-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+    .modal-wide { max-width:900px !important; width:calc(100% - 40px) !important; }
+    .search-box { position:relative; }
+    .search-box input { padding-left:34px; }
+    .search-box::before { content:"🔍"; position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:14px; opacity:0.5; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1fr; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1fr; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -220,13 +374,28 @@ function page() {
       <div class="tab active" data-tab="orders">委托单管理</div>
       <div class="tab" data-tab="calendar">交付日历</div>
       <div class="tab" data-tab="works">作品档案</div>
+      <div class="tab" data-tab="customers">客户档案</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
       <div class="orders-layout">
         <form id="form">
           <h2>新增委托单</h2>
-          <label>委托人</label><input name="client" required>
+          <label>委托人</label>
+          <div class="client-select-row">
+            <select name="customerId" id="customer-select">
+              <option value="">-- 选择已有客户 --</option>
+            </select>
+            <button type="button" id="quick-new-customer" class="secondary">+ 新客户</button>
+          </div>
+          <div class="toggle-link" id="toggle-new-customer">或手动填写新客户信息</div>
+          <div class="sub-form" id="new-customer-subform">
+            <h4>新客户信息</h4>
+            <label>客户姓名</label><input name="newCustomerName">
+            <label>联系电话</label><input name="newCustomerPhone">
+            <label>微信号</label><input name="newCustomerWechat">
+            <label>地址</label><input name="newCustomerAddress">
+          </div>
           <label>鱼种</label><input name="fishSpecies" required>
           <label>拓印尺寸</label><input name="size" required>
           <label>纸张类型</label><input name="paper" required>
@@ -280,6 +449,26 @@ function page() {
       </div>
       <div class="grid" id="works"></div>
     </div>
+
+    <div class="tab-content" id="tab-customers">
+      <div id="customers-list-view">
+        <div class="customer-stats" id="customer-stats"></div>
+        <div class="section-title-row">
+          <h2 style="margin:0;">客户列表</h2>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <div class="search-box" style="width:260px;"><input id="customer-search" placeholder="搜索姓名/电话/微信"></div>
+            <button id="add-customer-btn">+ 新增客户</button>
+          </div>
+        </div>
+        <div class="grid" id="customers"></div>
+      </div>
+      <div id="customer-detail-view" style="display:none;">
+        <div style="margin-bottom:16px;">
+          <button class="back-btn" id="back-to-customers">← 返回客户列表</button>
+        </div>
+        <div id="customer-detail-container"></div>
+      </div>
+    </div>
   </main>
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
@@ -310,14 +499,37 @@ function page() {
       <button class="secondary modal-close" id="pay-close" style="margin-top:6px;width:100%;">关闭</button>
     </div>
   </div>
+  <div class="modal-overlay" id="customer-modal-overlay">
+    <div class="modal">
+      <h3 id="customer-modal-title">新增客户</h3>
+      <div class="modal-sub" id="customer-modal-sub"></div>
+      <div id="customer-modal-form">
+        <label>客户姓名</label><input id="cm-name" required>
+        <label>联系电话</label><input id="cm-phone">
+        <label>微信号</label><input id="cm-wechat">
+        <label>地址</label><input id="cm-address">
+        <label>备注</label><textarea id="cm-note"></textarea>
+      </div>
+      <div id="cm-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="cm-close">取消</button>
+        <button id="cm-save">保存</button>
+      </div>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
     let orders = [];
     let works = [];
+    let customers = [];
     let currentTab = "orders";
     let calendarOrders = [];
     let currentYear = new Date().getFullYear();
     let currentMonth = new Date().getMonth() + 1;
+    let editingCustomerId = null;
+    let customerDetailTab = "orders";
+    let customerSearchKeyword = "";
+    let afterCustomerCreated = null;
 
     async function api(path, options) {
       const res = await fetch(path, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
@@ -344,6 +556,12 @@ function page() {
     }
 
     function renderOrders() {
+      const customerSelect = document.querySelector("#customer-select");
+      const prevCustomer = customerSelect.value;
+      customerSelect.innerHTML = '<option value="">-- 选择已有客户 --</option>'
+        + customers.map(c => '<option value="'+c.id+'">'+c.name+(c.phone?' · '+c.phone:'')+'</option>').join("");
+      customerSelect.value = prevCustomer;
+
       const filter = document.querySelector("#filter");
       const statsEl = document.querySelector("#stats");
       const ordersEl = document.querySelector("#orders");
@@ -412,6 +630,195 @@ function page() {
       countEl.textContent = "共 " + filtered.length + " 件作品";
 
       worksEl.innerHTML = filtered.map(w => '<article class="card"><div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div><div class="meta">编号 '+w.id+' · 委托人 '+w.client+'</div><div class="divider"></div><div class="detail"><div><span class="label">尺寸</span>'+w.size+'</div><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色方案</span>'+w.inkPlan+'</div><div><span class="label">题字</span>'+(w.inscription || "无")+'</div><div><span class="label">负责人</span>'+w.owner+'</div><div><span class="label">完成时间</span>'+fmtDate(w.completedAt)+'</div></div></article>').join("");
+    }
+
+    function renderCustomers() {
+      const listView = document.querySelector("#customers-list-view");
+      const detailView = document.querySelector("#customer-detail-view");
+      if (detailView.style.display === "block") {
+        renderCustomerDetail();
+        return;
+      }
+      listView.style.display = "block";
+      const statsEl = document.querySelector("#customer-stats");
+      const gridEl = document.querySelector("#customers");
+      const totalOrders = customers.reduce((s, c) => s + (c.orderCount || 0), 0);
+      const totalWorks = customers.reduce((s, c) => s + (c.workCount || 0), 0);
+      const totalRevenue = customers.reduce((s, c) => s + (c.totalSpent || 0), 0);
+      const pendingAll = customers.reduce((s, c) => s + (c.pendingOrders || 0), 0);
+      statsEl.innerHTML = '<div class="stat"><span>客户总数</span><strong>'+customers.length+'</strong></div>'
+        + '<div class="stat"><span>累计委托</span><strong>'+totalOrders+'</strong></div>'
+        + '<div class="stat"><span>作品档案</span><strong>'+totalWorks+'</strong></div>'
+        + '<div class="stat"><span>进行中订单</span><strong>'+pendingAll+'</strong></div>'
+        + '<div class="stat stat-total"><span>累计营业额（实收）</span><strong>¥'+totalRevenue+'</strong></div>';
+      const keyword = customerSearchKeyword.trim();
+      const list = keyword
+        ? customers.filter(c => c.name.includes(keyword) || (c.phone || "").includes(keyword) || (c.wechat || "").includes(keyword))
+        : customers;
+      if (list.length === 0) {
+        gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无客户数据</div>';
+      } else {
+        gridEl.innerHTML = list.map(c => {
+          const contact = [];
+          if (c.phone) contact.push('📞 '+c.phone);
+          if (c.wechat) contact.push('💬 '+c.wechat);
+          if (c.address) contact.push('📍 '+ (c.address.length > 20 ? c.address.slice(0,20)+'…' : c.address));
+          const prefs = [];
+          if (c.preferredPaper) prefs.push('<span class="pill">📄 '+c.preferredPaper+'</span>');
+          if (c.preferredMounting) prefs.push('<span class="pill">🖼️ '+c.preferredMounting+'</span>');
+          return '<article class="card customer-card" data-customer-id="'+c.id+'">'
+            + '<div class="row"><h3 class="customer-name">'+c.name+'</h3><span class="customer-id">'+c.id+'</span></div>'
+            + '<div class="customer-contact">'+(contact.length ? contact.join('<br>') : '<span style="color:var(--muted);">未填写联系方式</span>')+'</div>'
+            + (prefs.length ? '<div class="customer-preferences">'+prefs.join('')+'</div>' : '')
+            + '<div class="customer-stats-mini">'
+            + '<div><strong>'+(c.orderCount||0)+'</strong>委托</div>'
+            + '<div><strong>'+(c.workCount||0)+'</strong>作品</div>'
+            + '<div><strong>¥'+(c.totalSpent||0)+'</strong>累计</div>'
+            + '</div>'
+            + '<div class="row" style="margin-top:10px;">'
+            + '<button data-view-customer="'+c.id+'">查看详情</button>'
+            + '<button class="secondary" data-edit-customer="'+c.id+'">编辑</button>'
+            + '</div>'
+            + '</article>';
+        }).join("");
+      }
+      document.querySelectorAll("[data-view-customer]").forEach(btn => btn.onclick = () => openCustomerDetail(btn.dataset.viewCustomer));
+      document.querySelectorAll("[data-edit-customer]").forEach(btn => btn.onclick = () => openCustomerModal(btn.dataset.editCustomer));
+    }
+
+    function openCustomerDetail(customerId) {
+      document.querySelector("#customers-list-view").style.display = "none";
+      document.querySelector("#customer-detail-view").style.display = "block";
+      customerDetailTab = "orders";
+      currentViewingCustomerId = customerId;
+      renderCustomerDetail();
+    }
+
+    let currentViewingCustomerId = null;
+
+    async function renderCustomerDetail() {
+      if (!currentViewingCustomerId) return;
+      try {
+        const customer = await api("/api/customers/"+currentViewingCustomerId);
+        const container = document.querySelector("#customer-detail-container");
+        const cOrders = customer.orders || [];
+        const cWorks = customer.works || [];
+        const pending = cOrders.filter(o => o.status !== "已完成");
+        const contact = [];
+        if (customer.phone) contact.push({label:"电话", value:customer.phone});
+        if (customer.wechat) contact.push({label:"微信", value:customer.wechat});
+        if (customer.address) contact.push({label:"地址", value:customer.address});
+        container.innerHTML = '<div class="customer-detail-layout">'
+          + '<div class="panel customer-info-panel">'
+          + '<div class="row" style="margin-bottom:8px;"><h2 style="margin:0;">'+customer.name+'</h2><span class="customer-id">'+customer.id+'</span></div>'
+          + '<div class="meta" style="margin-bottom:12px;">建档时间：'+fmtDate(customer.createdAt)+'</div>'
+          + contact.map(r => '<div class="info-row"><span class="info-label">'+r.label+'</span><span class="info-value">'+r.value+'</span></div>').join("")
+          + (contact.length === 0 ? '<div class="info-row"><span class="info-label">联系方式</span><span class="info-value" style="color:var(--muted);font-weight:400;">未填写</span></div>' : '')
+          + '<div class="divider" style="margin:10px 0;"></div>'
+          + '<div class="info-row"><span class="info-label">累计委托</span><span class="info-value">'+(customer.orderCount||0)+' 单</span></div>'
+          + '<div class="info-row"><span class="info-label">完成作品</span><span class="info-value">'+(customer.workCount||0)+' 件</span></div>'
+          + '<div class="info-row"><span class="info-label">未完成订单</span><span class="info-value" style="color:'+(customer.pendingOrders>0?'var(--warn)':'var(--ink)')+';">'+(customer.pendingOrders||0)+' 单</span></div>'
+          + '<div class="info-row"><span class="info-label">累计消费</span><span class="info-value money">¥'+(customer.totalSpent||0)+'</span></div>'
+          + '<div class="info-row"><span class="info-label">常用纸张</span><span class="info-value">'+(customer.preferredPaper||"—")+'</span></div>'
+          + '<div class="info-row"><span class="info-label">常用装裱</span><span class="info-value">'+(customer.preferredMounting||"—")+'</span></div>'
+          + (customer.note ? '<div class="customer-note"><strong style="font-size:12px;color:var(--muted);">备注</strong><br>'+customer.note+'</div>' : '')
+          + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">'
+          + '<button data-edit-customer-btn="'+customer.id+'">编辑客户</button>'
+          + '<button class="secondary" data-delete-customer-btn="'+customer.id+'">删除客户</button>'
+          + '</div>'
+          + '</div>'
+          + '<div>'
+          + '<div class="customer-detail-tabs">'
+          + '<div class="customer-detail-tab '+(customerDetailTab==='orders'?'active':'')+'" data-cd-tab="orders">未完成订单 ('+pending.length+')</div>'
+          + '<div class="customer-detail-tab '+(customerDetailTab==='allOrders'?'active':'')+'" data-cd-tab="allOrders">全部订单 ('+cOrders.length+')</div>'
+          + '<div class="customer-detail-tab '+(customerDetailTab==='works'?'active':'')+'" data-cd-tab="works">完成作品 ('+cWorks.length+')</div>'
+          + '</div>'
+          + '<div class="customer-detail-content '+(customerDetailTab==='orders'?'active':'')+'" id="cd-tab-orders">'
+          + (pending.length === 0
+              ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无未完成订单</div>'
+              : '<div class="grid">' + pending.map(o => {
+                  const pi = getPaidInfo(o);
+                  return '<article class="card"><div class="row"><h3>'+o.id+'</h3><span class="pill">'+o.status+'</span></div>'
+                    + '<div class="meta">'+o.fishSpecies+' · '+o.size+'</div>'
+                    + '<div class="divider"></div>'
+                    + '<div class="detail"><div><span class="label">纸张</span>'+o.paper+'</div><div><span class="label">装裱</span>'+o.mounting+'</div>'
+                    + '<div><span class="label">题字</span>'+(o.inscription||"无")+'</div><div><span class="label">交付</span>'+fmtDate(o.dueDate)+'</div></div>'
+                    + '<div class="row" style="margin-top:8px;"><div class="money">¥'+(o.price||0)+' <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'
+                    + '</article>';
+                }).join("") + '</div>')
+          + '</div>'
+          + '<div class="customer-detail-content '+(customerDetailTab==='allOrders'?'active':'')+'" id="cd-tab-allOrders">'
+          + (cOrders.length === 0
+              ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无订单记录</div>'
+              : '<div class="grid">' + cOrders.map(o => {
+                  const pi = getPaidInfo(o);
+                  return '<article class="card"><div class="row"><h3>'+o.id+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div>'
+                    + '<div class="meta">'+o.fishSpecies+' · '+o.size+'</div>'
+                    + '<div class="divider"></div>'
+                    + '<div class="detail"><div><span class="label">纸张</span>'+o.paper+'</div><div><span class="label">装裱</span>'+o.mounting+'</div>'
+                    + '<div><span class="label">题字</span>'+(o.inscription||"无")+'</div><div><span class="label">交付</span>'+fmtDate(o.dueDate)+'</div></div>'
+                    + '<div class="row" style="margin-top:8px;"><div class="money">¥'+(o.price||0)+' <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'
+                    + '</article>';
+                }).join("") + '</div>')
+          + '</div>'
+          + '<div class="customer-detail-content '+(customerDetailTab==='works'?'active':'')+'" id="cd-tab-works">'
+          + (cWorks.length === 0
+              ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无作品档案</div>'
+              : '<div class="grid">' + cWorks.map(w => '<article class="card"><div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div>'
+                + '<div class="meta">'+w.id+' · '+w.size+'</div><div class="divider"></div>'
+                + '<div class="detail"><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色</span>'+w.inkPlan+'</div>'
+                + '<div><span class="label">题字</span>'+(w.inscription||"无")+'</div><div><span class="label">完成</span>'+fmtDate(w.completedAt)+'</div></div></article>').join("") + '</div>')
+          + '</div>'
+          + '</div>'
+          + '</div>';
+        document.querySelectorAll("[data-cd-tab]").forEach(t => t.onclick = () => {
+          customerDetailTab = t.dataset.cdTab;
+          renderCustomerDetail();
+        });
+        document.querySelector("[data-edit-customer-btn]")?.addEventListener("click", () => openCustomerModal(customer.id));
+        const delBtn = document.querySelector("[data-delete-customer-btn]");
+        if (delBtn) delBtn.onclick = async () => {
+          if (!confirm("确认删除此客户档案？删除后历史订单将保留，但会解除与该客户的关联。")) return;
+          try {
+            await api("/api/customers/"+customer.id, { method: "DELETE" });
+            alert("已删除");
+            document.querySelector("#customer-detail-view").style.display = "none";
+            currentViewingCustomerId = null;
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function openCustomerModal(customerId) {
+      editingCustomerId = customerId || null;
+      const overlay = document.querySelector("#customer-modal-overlay");
+      const title = document.querySelector("#customer-modal-title");
+      const sub = document.querySelector("#customer-modal-sub");
+      const errorEl = document.querySelector("#cm-error");
+      errorEl.style.display = "none";
+      if (editingCustomerId) {
+        const c = customers.find(x => x.id === editingCustomerId);
+        if (!c) return;
+        title.textContent = "编辑客户";
+        sub.textContent = c.id;
+        document.querySelector("#cm-name").value = c.name || "";
+        document.querySelector("#cm-phone").value = c.phone || "";
+        document.querySelector("#cm-wechat").value = c.wechat || "";
+        document.querySelector("#cm-address").value = c.address || "";
+        document.querySelector("#cm-note").value = c.note || "";
+      } else {
+        title.textContent = "新增客户";
+        sub.textContent = "";
+        document.querySelector("#cm-name").value = "";
+        document.querySelector("#cm-phone").value = "";
+        document.querySelector("#cm-wechat").value = "";
+        document.querySelector("#cm-address").value = "";
+        document.querySelector("#cm-note").value = "";
+      }
+      overlay.classList.add("active");
     }
 
     function getOrderClass(order) {
@@ -538,12 +945,14 @@ function page() {
     function render() {
       if (currentTab === "orders") renderOrders();
       else if (currentTab === "calendar") renderCalendar();
-      else renderWorks();
+      else if (currentTab === "works") renderWorks();
+      else if (currentTab === "customers") renderCustomers();
     }
 
     async function load() {
       orders = await api("/api/orders");
       works = await api("/api/works");
+      customers = await api("/api/customers");
       if (currentTab === "calendar") {
         calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
       }
@@ -682,11 +1091,133 @@ function page() {
       }
     };
 
+    document.querySelector("#toggle-new-customer").onclick = () => {
+      const sub = document.querySelector("#new-customer-subform");
+      sub.classList.toggle("active");
+      if (sub.classList.contains("active")) {
+        document.querySelector("#customer-select").value = "";
+      }
+    };
+    document.querySelector("#customer-select").onchange = (e) => {
+      if (e.target.value) {
+        document.querySelector("#new-customer-subform").classList.remove("active");
+      }
+    };
+    document.querySelector("#quick-new-customer").onclick = () => {
+      afterCustomerCreated = (newCust) => {
+        document.querySelector("#customer-select").value = newCust.id;
+        document.querySelector("#new-customer-subform").classList.remove("active");
+      };
+      openCustomerModal();
+    };
+
     document.querySelector("#form").onsubmit = async (event) => {
       event.preventDefault();
       const form = event.target;
-      await api("/api/orders", { method:"POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
-      form.reset(); await load();
+      const data = Object.fromEntries(new FormData(form).entries());
+      const errorEl = document.createElement("div");
+      errorEl.style.cssText = "color:#9b2c2c;font-size:13px;margin-top:6px;";
+      const oldError = form.querySelector(".form-error");
+      if (oldError) oldError.remove();
+      const newCustName = (data.newCustomerName || "").trim();
+      const newCustSubformActive = document.querySelector("#new-customer-subform").classList.contains("active");
+      if (!data.customerId && !newCustSubformActive) {
+        errorEl.className = "form-error";
+        errorEl.textContent = "请选择已有客户，或点击「手动填写新客户信息」填写新客户";
+        form.appendChild(errorEl);
+        return;
+      }
+      if (newCustSubformActive && !newCustName) {
+        errorEl.className = "form-error";
+        errorEl.textContent = "新客户姓名不能为空";
+        form.appendChild(errorEl);
+        return;
+      }
+      const payload = { ...data };
+      if (newCustSubformActive) {
+        payload.customerId = "";
+        payload.newCustomer = {
+          name: newCustName,
+          phone: data.newCustomerPhone || "",
+          wechat: data.newCustomerWechat || "",
+          address: data.newCustomerAddress || ""
+        };
+      }
+      delete payload.newCustomerName;
+      delete payload.newCustomerPhone;
+      delete payload.newCustomerWechat;
+      delete payload.newCustomerAddress;
+      try {
+        await api("/api/orders", { method:"POST", body: JSON.stringify(payload) });
+        form.reset();
+        document.querySelector("#new-customer-subform").classList.remove("active");
+        await load();
+      } catch (e) {
+        errorEl.className = "form-error";
+        errorEl.textContent = e.message;
+        form.appendChild(errorEl);
+      }
+    };
+
+    document.querySelector("#add-customer-btn").onclick = () => openCustomerModal();
+    document.querySelector("#back-to-customers").onclick = async () => {
+      document.querySelector("#customer-detail-view").style.display = "none";
+      document.querySelector("#customers-list-view").style.display = "block";
+      currentViewingCustomerId = null;
+      await load();
+    };
+    document.querySelector("#customer-search").oninput = (e) => {
+      customerSearchKeyword = e.target.value;
+      renderCustomers();
+    };
+
+    document.querySelector("#cm-close").onclick = () => {
+      document.querySelector("#customer-modal-overlay").classList.remove("active");
+      editingCustomerId = null;
+      afterCustomerCreated = null;
+    };
+    document.querySelector("#customer-modal-overlay").onclick = (e) => {
+      if (e.target.id === "customer-modal-overlay") {
+        document.querySelector("#customer-modal-overlay").classList.remove("active");
+        editingCustomerId = null;
+        afterCustomerCreated = null;
+      }
+    };
+    document.querySelector("#cm-save").onclick = async () => {
+      const name = document.querySelector("#cm-name").value.trim();
+      const phone = document.querySelector("#cm-phone").value.trim();
+      const wechat = document.querySelector("#cm-wechat").value.trim();
+      const address = document.querySelector("#cm-address").value.trim();
+      const note = document.querySelector("#cm-note").value.trim();
+      const errorEl = document.querySelector("#cm-error");
+      if (!name) {
+        errorEl.textContent = "客户姓名不能为空";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        let result;
+        if (editingCustomerId) {
+          result = await api("/api/customers/"+editingCustomerId, {
+            method: "PUT",
+            body: JSON.stringify({ name, phone, wechat, address, note })
+          });
+        } else {
+          result = await api("/api/customers", {
+            method: "POST",
+            body: JSON.stringify({ name, phone, wechat, address, note })
+          });
+        }
+        document.querySelector("#customer-modal-overlay").classList.remove("active");
+        const cb = afterCustomerCreated;
+        editingCustomerId = null;
+        afterCustomerCreated = null;
+        await load();
+        if (cb) cb(result);
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
     };
 
     load();
@@ -718,7 +1249,37 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/orders") {
       const input = await body(req);
-      const order = { id: `FT-${Date.now()}`, ...input, price: Number(input.price || 0), paid: false, payments: [], status: "待拓印", history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }] };
+      let customerId = input.customerId;
+      let clientName = input.client;
+      if (input.newCustomer && input.newCustomer.name) {
+        const newCust = {
+          id: `C-${Date.now()}`,
+          name: input.newCustomer.name,
+          phone: input.newCustomer.phone || "",
+          wechat: input.newCustomer.wechat || "",
+          address: input.newCustomer.address || "",
+          note: input.newCustomer.note || "",
+          createdAt: new Date().toISOString()
+        };
+        db.customers.push(newCust);
+        customerId = newCust.id;
+        clientName = newCust.name;
+      } else if (customerId) {
+        const cust = db.customers.find(c => c.id === customerId);
+        if (cust) clientName = cust.name;
+      }
+      const order = {
+        id: `FT-${Date.now()}`,
+        ...input,
+        customerId,
+        client: clientName || input.client,
+        price: Number(input.price || 0),
+        paid: false,
+        payments: [],
+        status: "待拓印",
+        history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }]
+      };
+      delete order.newCustomer;
       db.orders.unshift(order);
       await saveDb(db);
       return sendJson(res, 201, order);
@@ -770,6 +1331,7 @@ const server = http.createServer(async (req, res) => {
       const work = {
         id: `W-${Date.now()}`,
         orderId: order.id,
+        customerId: order.customerId,
         client: order.client,
         fishSpecies: order.fishSpecies,
         size: order.size,
@@ -784,6 +1346,70 @@ const server = http.createServer(async (req, res) => {
       order.archived = true;
       await saveDb(db);
       return sendJson(res, 201, work);
+    }
+    if (req.method === "GET" && url.pathname === "/api/customers") {
+      const list = (db.customers || []).map(c => enrichCustomer(c, db.orders, db.works || []));
+      const keyword = url.searchParams.get("q")?.trim();
+      const result = keyword
+        ? list.filter(c => c.name.includes(keyword) || (c.phone || "").includes(keyword) || (c.wechat || "").includes(keyword))
+        : list;
+      return sendJson(res, 200, result);
+    }
+    if (req.method === "POST" && url.pathname === "/api/customers") {
+      const input = await body(req);
+      if (!input.name || !input.name.trim()) return sendJson(res, 400, { error: "客户姓名不能为空" });
+      const customer = {
+        id: `C-${Date.now()}`,
+        name: input.name.trim(),
+        phone: input.phone || "",
+        wechat: input.wechat || "",
+        address: input.address || "",
+        note: input.note || "",
+        createdAt: new Date().toISOString()
+      };
+      db.customers = db.customers || [];
+      db.customers.push(customer);
+      await saveDb(db);
+      return sendJson(res, 201, enrichCustomer(customer, db.orders, db.works || []));
+    }
+    const custMatch = url.pathname.match(/^\/api\/customers\/([^/]+)$/);
+    if (custMatch) {
+      const customer = (db.customers || []).find(c => c.id === custMatch[1]);
+      if (!customer) return sendJson(res, 404, { error: "customer_not_found" });
+      if (req.method === "GET") {
+        const cOrders = db.orders.filter(o => o.customerId === customer.id);
+        const cWorks = (db.works || []).filter(w => w.customerId === customer.id);
+        return sendJson(res, 200, {
+          ...enrichCustomer(customer, db.orders, db.works || []),
+          orders: cOrders,
+          works: cWorks
+        });
+      }
+      if (req.method === "PUT") {
+        const input = await body(req);
+        if (input.name !== undefined) {
+          if (!input.name.trim()) return sendJson(res, 400, { error: "客户姓名不能为空" });
+          const oldName = customer.name;
+          customer.name = input.name.trim();
+          if (oldName !== customer.name) {
+            db.orders.forEach(o => { if (o.customerId === customer.id) o.client = customer.name; });
+            (db.works || []).forEach(w => { if (w.customerId === customer.id) w.client = customer.name; });
+          }
+        }
+        if (input.phone !== undefined) customer.phone = input.phone;
+        if (input.wechat !== undefined) customer.wechat = input.wechat;
+        if (input.address !== undefined) customer.address = input.address;
+        if (input.note !== undefined) customer.note = input.note;
+        await saveDb(db);
+        return sendJson(res, 200, enrichCustomer(customer, db.orders, db.works || []));
+      }
+      if (req.method === "DELETE") {
+        db.orders.forEach(o => { if (o.customerId === customer.id) delete o.customerId; });
+        (db.works || []).forEach(w => { if (w.customerId === customer.id) delete w.customerId; });
+        db.customers = db.customers.filter(c => c.id !== customer.id);
+        await saveDb(db);
+        return sendJson(res, 200, { ok: true });
+      }
     }
     sendJson(res, 404, { error: "not_found" });
   } catch (error) {
