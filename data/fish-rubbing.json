@@ -83,11 +83,11 @@
       "mounting": "立轴",
       "inscription": "海阔凭鱼跃",
       "owner": "阿青",
-      "price": 2000,
+      "price": 1800,
       "paid": false,
       "payments": [],
       "dueDate": "2026-06-24",
-      "status": "待取件",
+      "status": "晾干中",
       "tasks": [
         {
           "id": "T-2601-1",
@@ -108,26 +108,6 @@
           "completed": false,
           "createdAt": "2026-06-13T15:30:00.000Z",
           "updatedAt": "2026-06-13T15:30:00.000Z"
-        },
-        {
-          "id": "T-1781709478145-af9h",
-          "stage": "装裱中",
-          "assignee": "阿青",
-          "date": "2026-06-17",
-          "note": "测试推进状态",
-          "completed": false,
-          "createdAt": "2026-06-17T15:17:58.145Z",
-          "updatedAt": "2026-06-17T15:17:58.145Z"
-        },
-        {
-          "id": "T-1781709478162-ov9d",
-          "stage": "待取件",
-          "assignee": "阿青",
-          "date": "2026-06-17",
-          "note": "推进到待取件",
-          "completed": false,
-          "createdAt": "2026-06-17T15:17:58.162Z",
-          "updatedAt": "2026-06-17T15:17:58.162Z"
         }
       ],
       "history": [
@@ -155,21 +135,6 @@
           "at": "2026-06-17T13:42:04.507Z",
           "stage": "晾干中",
           "note": "[订单变更] 尺寸：80x40cm → 80x40cm；墨色方案：淡墨鱼身，朱砂题款 → 浓墨鱼身，朱砂题款 - 原因：客户要求加大尺寸并调整墨色"
-        },
-        {
-          "at": "2026-06-17T15:17:58.145Z",
-          "stage": "装裱中",
-          "note": "测试推进状态"
-        },
-        {
-          "at": "2026-06-17T15:17:58.162Z",
-          "stage": "待取件",
-          "note": "推进到待取件"
-        },
-        {
-          "at": "2026-06-17T15:19:17.755Z",
-          "stage": "待取件",
-          "note": "[订单变更] 价格：1800 → 2000；备注：无 → 客户要求加价并加急处理，已同意 - 原因：客户调整价格，添加备注"
         }
       ],
       "materialUsage": {
@@ -214,23 +179,8 @@
           "reason": "客户要求加大尺寸并调整墨色",
           "approvedAt": "2026-06-17T13:42:04.507Z",
           "approver": "测试员"
-        },
-        {
-          "id": "CR-1781709517452",
-          "changes": {
-            "price": "2000",
-            "note": "客户要求加价并加急处理，已同意"
-          },
-          "original": {
-            "price": 1800,
-            "note": ""
-          },
-          "reason": "客户调整价格，添加备注",
-          "approvedAt": "2026-06-17T15:19:17.755Z",
-          "approver": "测试员"
         }
-      ],
-      "note": "客户要求加价并加急处理，已同意"
+      ]
     },
     {
       "id": "FT-2600",
@@ -444,25 +394,6 @@
       "approvedAt": null,
       "rejectedAt": null,
       "approver": "",
-      "rejectReason": ""
-    },
-    {
-      "id": "CR-1781709517452",
-      "orderId": "FT-2601",
-      "status": "approved",
-      "changes": {
-        "price": "2000",
-        "note": "客户要求加价并加急处理，已同意"
-      },
-      "original": {
-        "price": 1800,
-        "note": ""
-      },
-      "reason": "客户调整价格，添加备注",
-      "createdAt": "2026-06-17T15:18:37.452Z",
-      "approvedAt": "2026-06-17T15:19:17.755Z",
-      "rejectedAt": null,
-      "approver": "测试员",
       "rejectReason": ""
     }
   ],

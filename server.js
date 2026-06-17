@@ -72,6 +72,12 @@ function estimateMaterialUsage(order) {
 
   return usage;
 }
+
+function formatPaymentRecord(payment) {
+  if (!payment) return "无";
+  return `${payment.type || "收款"} ¥${Number(payment.amount || 0)} · ${payment.paidAt || "-"}${payment.note ? ` · ${payment.note}` : ""}`;
+}
+
 const seed = {
   materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)),
   materialTransactions: [],
@@ -905,6 +911,13 @@ function page() {
           <input id="cr-dueDate" type="date" disabled>
           <label><input type="checkbox" class="cr-field-toggle" data-field="price"> 价格（元）</label>
           <input id="cr-price" type="number" min="0" step="1" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="payment"> 收款</label>
+          <div id="cr-payment-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;opacity:0.5;">
+            <select id="cr-payment-type" disabled><option value="定金">定金</option><option value="尾款">尾款</option></select>
+            <input id="cr-payment-amount" type="number" min="1" step="1" placeholder="收款金额" disabled>
+            <input id="cr-payment-paidAt" type="date" disabled>
+            <input id="cr-payment-note" placeholder="收款备注" disabled>
+          </div>
           <label><input type="checkbox" class="cr-field-toggle" data-field="note"> 备注</label>
           <textarea id="cr-note" disabled></textarea>
         </div>
@@ -987,6 +1000,11 @@ function page() {
       if (!iso) return "-";
       const d = new Date(iso);
       return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    }
+
+    function formatPaymentChange(payment) {
+      if (!payment) return "无";
+      return (payment.type || "收款") + " ¥" + (Number(payment.amount || 0)) + " · " + (payment.paidAt || "-") + (payment.note ? " · " + payment.note : "");
     }
 
     function getPaidInfo(order) {
@@ -1382,7 +1400,7 @@ function page() {
         const statusCls = "cr-status-"+cr.status;
         const changeDesc = Object.entries(cr.changes || {})
           .map(([key, val]) => {
-            const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+            const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", payment: "收款", note: "备注", paper: "纸张", mounting: "装裱方式" };
             return labels[key] || key;
           })
           .join("、");
@@ -1416,19 +1434,35 @@ function page() {
 
       const isPickup = order.status === "待取件";
       if (isPickup) {
-        tipEl.textContent = "待取件订单仅可修改价格和备注信息";
+        tipEl.textContent = "待取件订单仅可修改收款和备注信息";
         tipEl.style.display = "block";
       } else {
         tipEl.style.display = "none";
       }
 
-      const fields = ["size", "paper", "inkPlan", "mounting", "inscription", "dueDate", "price", "note"];
-      const restrictedFields = isPickup ? ["price", "note"] : fields;
+      const fields = ["size", "paper", "inkPlan", "mounting", "inscription", "dueDate", "price", "payment", "note"];
+      const restrictedFields = isPickup ? ["payment", "note"] : fields.filter(field => field !== "payment");
 
       fields.forEach(field => {
         const checkbox = document.querySelector('.cr-field-toggle[data-field="'+field+'"]');
         const input = document.querySelector("#cr-"+field);
-        if (checkbox && input) {
+        if (field === "payment") {
+          const isEnabled = restrictedFields.includes(field);
+          const paymentFields = document.querySelector("#cr-payment-fields");
+          checkbox.checked = false;
+          checkbox.disabled = !isEnabled;
+          if (paymentFields) paymentFields.style.opacity = "0.5";
+          ["type", "amount", "paidAt", "note"].forEach(part => {
+            const paymentInput = document.querySelector("#cr-payment-"+part);
+            if (paymentInput) paymentInput.disabled = true;
+          });
+          document.querySelector("#cr-payment-type").value = "尾款";
+          document.querySelector("#cr-payment-amount").value = "";
+          document.querySelector("#cr-payment-paidAt").value = new Date().toISOString().slice(0, 10);
+          document.querySelector("#cr-payment-note").value = "";
+          const label = checkbox.closest("label");
+          if (label) label.style.opacity = isEnabled ? "1" : "0.5";
+        } else if (checkbox && input) {
           const isEnabled = restrictedFields.includes(field);
           checkbox.checked = false;
           checkbox.disabled = !isEnabled;
@@ -1453,8 +1487,16 @@ function page() {
       document.querySelectorAll(".cr-field-toggle").forEach(cb => {
         if (cb.checked) {
           const field = cb.dataset.field;
-          const input = document.querySelector("#cr-"+field);
-          if (input) {
+          if (field === "payment") {
+            changes.payment = {
+              type: document.querySelector("#cr-payment-type").value,
+              amount: Number(document.querySelector("#cr-payment-amount").value || 0),
+              paidAt: document.querySelector("#cr-payment-paidAt").value,
+              note: document.querySelector("#cr-payment-note").value
+            };
+          } else {
+            const input = document.querySelector("#cr-"+field);
+            if (!input) return;
             changes[field] = input.value;
           }
         }
@@ -1464,6 +1506,11 @@ function page() {
 
       if (Object.keys(changes).length === 0) {
         errorEl.textContent = "请至少选择一项要变更的内容";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (changes.payment && (!changes.payment.amount || changes.payment.amount <= 0 || !changes.payment.paidAt)) {
+        errorEl.textContent = "请填写有效的收款金额和日期";
         errorEl.style.display = "block";
         return;
       }
@@ -1509,13 +1556,13 @@ function page() {
         + (cr.approvedAt ? '<div class="row"><span class="label">审批时间</span><span class="value">'+fmtDate(cr.approvedAt)+'</span></div>' : '')
         + (cr.rejectReason ? '<div class="row"><span class="label">驳回原因</span><span class="value" style="color:#9b2c2c;">'+cr.rejectReason+'</span></div>' : '');
 
-      const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+      const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", payment: "收款", note: "备注", paper: "纸张", mounting: "装裱方式" };
       let diffHtml = '<div style="font-weight:600;margin-bottom:8px;">变更内容对比</div>';
       diffHtml += '<div class="cd-diff-table">';
       diffHtml += '<div class="cd-diff-header"><span>项目</span><span>变更前</span><span>变更后</span></div>';
       for (const [key, newValue] of Object.entries(cr.changes || {})) {
-        const oldValue = cr.original?.[key] || (order?.[key] || "无");
-        const displayNew = newValue || "无";
+        const oldValue = key === "payment" ? (cr.original?.payment || "无") : (cr.original?.[key] || (order?.[key] || "无"));
+        const displayNew = key === "payment" ? formatPaymentChange(newValue) : (newValue || "无");
         const label = labels[key] || key;
         diffHtml += '<div class="cd-diff-row">'
           + '<span class="cd-diff-field">'+label+'</span>'
@@ -1688,7 +1735,7 @@ function page() {
           html += '<div style="padding:8px 12px;background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;font-size:13px;color:#8a6d3b;margin-bottom:8px;">⚠️ 有 '+pendingChanges.length+' 条待审批的变更申请</div>';
         }
         if (isPickupStage) {
-          html += '<div style="font-size:12px;color:#999;margin-bottom:6px;">待取件订单仅可修改价格和备注</div>';
+          html += '<div style="font-size:12px;color:#999;margin-bottom:6px;">待取件订单仅可修改收款和备注</div>';
         }
         html += '<button data-change-request="'+order.id+'" style="width:100%;">发起变更申请</button></div>';
       } else {
@@ -1707,7 +1754,7 @@ function page() {
           const statusClass = c.status === "approved" ? "status-approved" : "status-pending";
           const changeDesc = Object.entries(c.changes || {})
             .map(([key, val]) => {
-              const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+              const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", payment: "收款", note: "备注", paper: "纸张", mounting: "装裱方式" };
               return labels[key] || key;
             })
             .join("、");
@@ -2423,8 +2470,16 @@ function page() {
     document.querySelectorAll(".cr-field-toggle").forEach(cb => {
       cb.addEventListener("change", (e) => {
         const field = e.target.dataset.field;
-        const input = document.querySelector("#cr-"+field);
-        if (input) {
+        if (field === "payment") {
+          const paymentFields = document.querySelector("#cr-payment-fields");
+          if (paymentFields) paymentFields.style.opacity = e.target.checked ? "1" : "0.5";
+          ["type", "amount", "paidAt", "note"].forEach(part => {
+            const paymentInput = document.querySelector("#cr-payment-"+part);
+            if (paymentInput) paymentInput.disabled = !e.target.checked;
+          });
+        } else {
+          const input = document.querySelector("#cr-"+field);
+          if (!input) return;
           input.disabled = !e.target.checked;
         }
       });
@@ -3345,12 +3400,14 @@ const server = http.createServer(async (req, res) => {
         }
         const input = await body(req);
         const changes = input.changes || {};
-        const allowedFields = ["size", "inkPlan", "inscription", "dueDate", "price", "note", "paper", "mounting"];
+        const allowedFields = order.status === "待取件"
+          ? ["payment", "note"]
+          : ["size", "inkPlan", "inscription", "dueDate", "price", "note", "paper", "mounting"];
         if (order.status === "待取件") {
-          const pickupAllowed = ["price", "note"];
+          const pickupAllowed = ["payment", "note"];
           for (const key of Object.keys(changes)) {
             if (!pickupAllowed.includes(key)) {
-              return sendJson(res, 400, { error: "待取件订单只能修改价格和备注相关信息" });
+              return sendJson(res, 400, { error: "待取件订单只能修改收款和备注相关信息" });
             }
           }
         }
@@ -3360,12 +3417,34 @@ const server = http.createServer(async (req, res) => {
             validChanges[key] = changes[key];
           }
         }
+        if (validChanges.payment) {
+          const payment = validChanges.payment;
+          const amount = Number(payment.amount || 0);
+          if (!amount || amount <= 0 || !payment.paidAt) {
+            return sendJson(res, 400, { error: "收款金额和日期不能为空" });
+          }
+          const paidTotal = (order.payments || []).reduce((s, p) => s + p.amount, 0);
+          const effectivePaid = (order.paid && paidTotal === 0) ? order.price : paidTotal;
+          if (effectivePaid + amount > order.price) {
+            return sendJson(res, 400, { error: `收款金额超过未收金额（未收 ¥${order.price - effectivePaid}）` });
+          }
+          const recentDup = (order.payments || []).find(p => p.type === payment.type && p.amount === amount && p.paidAt === payment.paidAt);
+          if (recentDup) {
+            return sendJson(res, 400, { error: "已存在相同的收款记录，请勿重复提交" });
+          }
+          validChanges.payment = {
+            type: payment.type || "尾款",
+            amount,
+            paidAt: payment.paidAt,
+            note: payment.note || ""
+          };
+        }
         if (Object.keys(validChanges).length === 0) {
           return sendJson(res, 400, { error: "没有有效的变更内容" });
         }
         const original = {};
         for (const key of Object.keys(validChanges)) {
-          original[key] = order[key] || "";
+          original[key] = key === "payment" ? "未登记" : (order[key] || "");
         }
         const changeId = `CR-${Date.now()}`;
         const changeRequest = {
@@ -3404,10 +3483,24 @@ const server = http.createServer(async (req, res) => {
       cr.approver = input.approver || "系统";
       const oldValues = {};
       for (const [key, value] of Object.entries(cr.changes)) {
-        oldValues[key] = order[key] || "";
-        if (key === "price") {
+        if (key === "payment") {
+          const payment = {
+            id: `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type: value.type || "尾款",
+            amount: Number(value.amount || 0),
+            paidAt: value.paidAt || new Date().toISOString().slice(0, 10),
+            note: value.note || ""
+          };
+          oldValues[key] = cr.original?.payment || "未登记";
+          if (!order.payments) order.payments = [];
+          order.payments.push(payment);
+          const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
+          order.paid = totalPaid >= order.price;
+        } else if (key === "price") {
+          oldValues[key] = order[key] || "";
           order[key] = Number(value) || 0;
         } else {
+          oldValues[key] = order[key] || "";
           order[key] = value;
         }
       }
@@ -3429,10 +3522,10 @@ const server = http.createServer(async (req, res) => {
       }
       const changeDesc = Object.entries(cr.changes)
         .map(([key, value]) => {
-          const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", note: "备注", paper: "纸张", mounting: "装裱方式" };
+          const labels = { size: "尺寸", inkPlan: "墨色方案", inscription: "题字", dueDate: "交付日期", price: "价格", payment: "收款", note: "备注", paper: "纸张", mounting: "装裱方式" };
           const label = labels[key] || key;
           const oldVal = oldValues[key] || "无";
-          const newVal = value || "无";
+          const newVal = key === "payment" ? formatPaymentRecord(value) : (value || "无");
           return `${label}：${oldVal} → ${newVal}`;
         })
         .join("；");
