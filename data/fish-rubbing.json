@@ -26,6 +26,90 @@
           "note": "完成右侧直接拓印"
         }
       ]
+    },
+    {
+      "id": "FT-2600",
+      "client": "周明远",
+      "fishSpecies": "黑鲷",
+      "size": "60x30cm",
+      "paper": "云母宣",
+      "inkPlan": "浓墨鱼身，浓淡对比",
+      "mounting": "镜片",
+      "inscription": "渔乐无穷",
+      "owner": "阿青",
+      "price": 1500,
+      "paid": true,
+      "dueDate": "2026-06-10",
+      "status": "已完成",
+      "archived": true,
+      "history": [
+        {
+          "at": "2026-06-01T09:00:00.000Z",
+          "stage": "待拓印",
+          "note": "新委托接单"
+        },
+        {
+          "at": "2026-06-03T14:00:00.000Z",
+          "stage": "晾干中",
+          "note": "完成拓印"
+        },
+        {
+          "at": "2026-06-06T10:00:00.000Z",
+          "stage": "装裱中",
+          "note": "开始装裱"
+        },
+        {
+          "at": "2026-06-09T16:00:00.000Z",
+          "stage": "待取件",
+          "note": "装裱完成"
+        },
+        {
+          "at": "2026-06-10T11:00:00.000Z",
+          "stage": "已完成",
+          "note": "客户取件并结清"
+        }
+      ]
+    }
+  ],
+  "works": [
+    {
+      "id": "W-1781670774443",
+      "orderId": "FT-2600",
+      "client": "周明远",
+      "fishSpecies": "黑鲷",
+      "size": "60x30cm",
+      "paper": "云母宣",
+      "inkPlan": "浓墨鱼身，浓淡对比",
+      "mounting": "镜片",
+      "inscription": "渔乐无穷",
+      "owner": "阿青",
+      "completedAt": "2026-06-10T11:00:00.000Z"
+    },
+    {
+      "id": "W-001",
+      "orderId": "FT-2599",
+      "client": "李渔",
+      "fishSpecies": "鲈鱼",
+      "size": "80x40cm",
+      "paper": "手工楮皮纸",
+      "inkPlan": "淡墨鱼身，朱砂点睛",
+      "mounting": "立轴",
+      "inscription": "烟波钓徒",
+      "owner": "阿青",
+      "completedAt": "2026-05-20T10:00:00.000Z"
+    },
+    {
+      "id": "W-002",
+      "orderId": "FT-2598",
+      "client": "张潮",
+      "fishSpecies": "真鲷",
+      "size": "65x32cm",
+      "paper": "云母宣",
+      "inkPlan": "浓淡墨渐变",
+      "mounting": "册页",
+      "inscription": "海阔凭鱼跃",
+      "owner": "阿青",
+      "completedAt": "2026-05-15T15:30:00.000Z"
     }
   ]
 }
