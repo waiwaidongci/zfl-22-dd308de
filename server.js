@@ -10,48 +10,9 @@ const port = Number(process.env.PORT || 3022);
 
 const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
 const seed = {
-  customers: [
-    {
-      id: "C-001",
-      name: "沈钧",
-      phone: "13800138001",
-      wechat: "shenjun_fish",
-      address: "上海市静安区南京西路1234号",
-      note: "偏好红色印章，喜欢立轴装裱",
-      createdAt: "2026-01-10T09:00:00.000Z"
-    },
-    {
-      id: "C-002",
-      name: "周明远",
-      phone: "13900139002",
-      wechat: "zhoumingyuan",
-      address: "杭州市西湖区龙井路88号",
-      note: "老客户，每年定期有作品需求",
-      createdAt: "2026-02-15T10:00:00.000Z"
-    },
-    {
-      id: "C-003",
-      name: "李渔",
-      phone: "13700137003",
-      wechat: "liyufishing",
-      address: "苏州市姑苏区平江路200号",
-      note: "鲈鱼爱好者",
-      createdAt: "2026-03-01T14:00:00.000Z"
-    },
-    {
-      id: "C-004",
-      name: "张潮",
-      phone: "13600136004",
-      wechat: "zhangchao_art",
-      address: "南京市玄武区长江路100号",
-      note: "偏好册页形式",
-      createdAt: "2026-03-20T11:00:00.000Z"
-    }
-  ],
   orders: [
     {
       id: "FT-2601",
-      customerId: "C-001",
       client: "沈钧",
       fishSpecies: "真鲷",
       size: "70x35cm",
@@ -72,7 +33,6 @@ const seed = {
     },
     {
       id: "FT-2600",
-      customerId: "C-002",
       client: "周明远",
       fishSpecies: "黑鲷",
       size: "60x30cm",
@@ -103,7 +63,6 @@ const seed = {
     {
       id: "W-001",
       orderId: "FT-2599",
-      customerId: "C-003",
       client: "李渔",
       fishSpecies: "鲈鱼",
       size: "80x40cm",
@@ -117,7 +76,6 @@ const seed = {
     {
       id: "W-002",
       orderId: "FT-2598",
-      customerId: "C-004",
       client: "张潮",
       fishSpecies: "真鲷",
       size: "65x32cm",
@@ -145,10 +103,9 @@ async function saveDb(db) {
   await writeFile(dbPath, JSON.stringify(db, null, 2));
 }
 
-let migrated = false;
 async function migrateLegacyData(db) {
-  if (migrated) return;
-  let changed = false;
+  if (db._customerMigrated) return;
+  let changed = true;
   if (!db.customers) { db.customers = []; changed = true; }
   const nameToId = new Map(db.customers.map(c => [c.name, c.id]));
   function ensureCustomer(name) {
@@ -166,7 +123,6 @@ async function migrateLegacyData(db) {
     };
     db.customers.push(customer);
     nameToId.set(name, id);
-    changed = true;
     return id;
   }
   if (Array.isArray(db.orders)) {
@@ -185,10 +141,8 @@ async function migrateLegacyData(db) {
       }
     }
   }
-  if (changed) {
-    await saveDb(db);
-  }
-  migrated = true;
+  db._customerMigrated = true;
+  await saveDb(db);
 }
 
 function enrichCustomer(customer, orders, works) {
