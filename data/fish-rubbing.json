@@ -1,4 +1,133 @@
 {
+  "materials": [
+    {
+      "id": "M-001",
+      "name": "手工楮皮纸",
+      "category": "纸张",
+      "unit": "张",
+      "stock": 69,
+      "reserved": 0,
+      "threshold": 10,
+      "note": "四尺整纸规格 69x138cm"
+    },
+    {
+      "id": "M-002",
+      "name": "云母宣",
+      "category": "纸张",
+      "unit": "张",
+      "stock": 80,
+      "reserved": 0,
+      "threshold": 15,
+      "note": "四尺整纸规格 69x138cm"
+    },
+    {
+      "id": "M-003",
+      "name": "净皮宣",
+      "category": "纸张",
+      "unit": "张",
+      "stock": 60,
+      "reserved": 0,
+      "threshold": 15,
+      "note": "四尺整纸规格 69x138cm"
+    },
+    {
+      "id": "M-004",
+      "name": "墨料",
+      "category": "墨料",
+      "unit": "克",
+      "stock": 497,
+      "reserved": 0,
+      "threshold": 100,
+      "note": "松烟墨粉"
+    },
+    {
+      "id": "M-005",
+      "name": "朱砂",
+      "category": "朱砂",
+      "unit": "克",
+      "stock": 98,
+      "reserved": 0,
+      "threshold": 20,
+      "note": "书画朱砂粉"
+    },
+    {
+      "id": "M-006",
+      "name": "装裱轴头(木)",
+      "category": "装裱轴头",
+      "unit": "对",
+      "stock": 29,
+      "reserved": 0,
+      "threshold": 5,
+      "note": "实木轴头，四尺用"
+    },
+    {
+      "id": "M-007",
+      "name": "装裱轴头(仿红木)",
+      "category": "装裱轴头",
+      "unit": "对",
+      "stock": 20,
+      "reserved": 0,
+      "threshold": 5,
+      "note": "仿红木轴头，四尺用"
+    }
+  ],
+  "materialTransactions": [
+    {
+      "id": "TX-1781691541880",
+      "materialId": "M-001",
+      "type": "入库",
+      "quantity": 20,
+      "before": 50,
+      "after": 70,
+      "orderId": null,
+      "note": "测试入库",
+      "at": "2026-06-17T10:19:01.880Z"
+    },
+    {
+      "id": "TX-1781691640956-aw2x",
+      "materialId": "M-001",
+      "type": "出库",
+      "quantity": 1,
+      "before": 70,
+      "after": 69,
+      "orderId": "FT-2601",
+      "note": "订单 FT-2601 完成，扣减实际用量",
+      "at": "2026-06-17T10:20:40.957Z"
+    },
+    {
+      "id": "TX-1781691640957-u5zf",
+      "materialId": "M-004",
+      "type": "出库",
+      "quantity": 3,
+      "before": 500,
+      "after": 497,
+      "orderId": "FT-2601",
+      "note": "订单 FT-2601 完成，扣减实际用量",
+      "at": "2026-06-17T10:20:40.957Z"
+    },
+    {
+      "id": "TX-1781691640957-93u1",
+      "materialId": "M-005",
+      "type": "出库",
+      "quantity": 2,
+      "before": 100,
+      "after": 98,
+      "orderId": "FT-2601",
+      "note": "订单 FT-2601 完成，扣减实际用量",
+      "at": "2026-06-17T10:20:40.957Z"
+    },
+    {
+      "id": "TX-1781691640957-u5vv",
+      "materialId": "M-006",
+      "type": "出库",
+      "quantity": 1,
+      "before": 30,
+      "after": 29,
+      "orderId": "FT-2601",
+      "note": "订单 FT-2601 完成，扣减实际用量",
+      "at": "2026-06-17T10:20:40.957Z"
+    }
+  ],
   "orders": [
     {
       "id": "FT-2601",
@@ -12,17 +141,9 @@
       "owner": "阿青",
       "price": 1800,
       "paid": false,
-      "payments": [
-        {
-          "id": "PAY-2601-1",
-          "type": "定金",
-          "amount": 600,
-          "paidAt": "2026-06-12",
-          "note": "微信转账"
-        }
-      ],
+      "payments": [],
       "dueDate": "2026-06-24",
-      "status": "晾干中",
+      "status": "已完成",
       "tasks": [
         {
           "id": "T-2601-1",
@@ -38,8 +159,8 @@
           "id": "T-2601-2",
           "stage": "晾干中",
           "assignee": "阿青",
-          "date": "2026-06-14",
-          "note": "自然晾干三天",
+          "date": "2026-06-17",
+          "note": "自然晾干，注意湿度",
           "completed": false,
           "createdAt": "2026-06-13T15:30:00.000Z",
           "updatedAt": "2026-06-13T15:30:00.000Z"
@@ -55,9 +176,20 @@
           "at": "2026-06-13T15:30:00.000Z",
           "stage": "晾干中",
           "note": "完成右侧直接拓印"
+        },
+        {
+          "at": "2026-06-17T10:20:40.956Z",
+          "stage": "已完成",
+          "note": "测试完成扣减"
         }
       ],
-      "customerId": "C-1781684380525-856e"
+      "materialUsage": {
+        "M-001": 1,
+        "M-004": 3,
+        "M-005": 2,
+        "M-006": 1
+      },
+      "customerId": "C-1781691458610-t8d4"
     },
     {
       "id": "FT-2600",
@@ -159,7 +291,7 @@
           "note": "客户取件并结清"
         }
       ],
-      "customerId": "C-1781684380531-6ywm"
+      "customerId": "C-1781691458619-3jab"
     }
   ],
   "works": [
@@ -175,7 +307,7 @@
       "inscription": "烟波钓徒",
       "owner": "阿青",
       "completedAt": "2026-05-20T10:00:00.000Z",
-      "customerId": "C-1781684380531-ao46"
+      "customerId": "C-1781691458619-i7hv"
     },
     {
       "id": "W-002",
@@ -189,45 +321,46 @@
       "inscription": "海阔凭鱼跃",
       "owner": "阿青",
       "completedAt": "2026-05-15T15:30:00.000Z",
-      "customerId": "C-1781684380531-mh0y"
+      "customerId": "C-1781691458619-n64b"
     }
   ],
+  "_materialMigrated": true,
   "customers": [
     {
-      "id": "C-1781684380525-856e",
+      "id": "C-1781691458610-t8d4",
       "name": "沈钧",
       "phone": "",
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T08:19:40.526Z"
+      "createdAt": "2026-06-17T10:17:38.610Z"
     },
     {
-      "id": "C-1781684380531-6ywm",
+      "id": "C-1781691458619-3jab",
       "name": "周明远",
       "phone": "",
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T08:19:40.531Z"
+      "createdAt": "2026-06-17T10:17:38.619Z"
     },
     {
-      "id": "C-1781684380531-ao46",
+      "id": "C-1781691458619-i7hv",
       "name": "李渔",
       "phone": "",
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T08:19:40.531Z"
+      "createdAt": "2026-06-17T10:17:38.619Z"
     },
     {
-      "id": "C-1781684380531-mh0y",
+      "id": "C-1781691458619-n64b",
       "name": "张潮",
       "phone": "",
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T08:19:40.531Z"
+      "createdAt": "2026-06-17T10:17:38.619Z"
     }
   ],
   "_customerMigrated": true,

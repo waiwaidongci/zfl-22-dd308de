@@ -11,7 +11,70 @@ const port = Number(process.env.PORT || 3022);
 const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
 const scheduleStages = ["待拓印", "晾干中", "装裱中", "待取件"];
 const MAX_TASKS_PER_DAY = 5;
+
+const MATERIAL_CATEGORIES = {
+  PAPER: "纸张",
+  INK: "墨料",
+  CINNABAR: "朱砂",
+  MOUNTING_AXLE: "装裱轴头"
+};
+
+const DEFAULT_MATERIALS = [
+  { id: "M-001", name: "手工楮皮纸", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 50, reserved: 0, threshold: 10, note: "四尺整纸规格 69x138cm" },
+  { id: "M-002", name: "云母宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 80, reserved: 0, threshold: 15, note: "四尺整纸规格 69x138cm" },
+  { id: "M-003", name: "净皮宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 60, reserved: 0, threshold: 15, note: "四尺整纸规格 69x138cm" },
+  { id: "M-004", name: "墨料", category: MATERIAL_CATEGORIES.INK, unit: "克", stock: 500, reserved: 0, threshold: 100, note: "松烟墨粉" },
+  { id: "M-005", name: "朱砂", category: MATERIAL_CATEGORIES.CINNABAR, unit: "克", stock: 100, reserved: 0, threshold: 20, note: "书画朱砂粉" },
+  { id: "M-006", name: "装裱轴头(木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 30, reserved: 0, threshold: 5, note: "实木轴头，四尺用" },
+  { id: "M-007", name: "装裱轴头(仿红木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 20, reserved: 0, threshold: 5, note: "仿红木轴头，四尺用" }
+];
+
+const PAPER_AREA_RATIO = (standardArea) => {
+  const standard = 69 * 138;
+  return standardArea / standard;
+};
+
+function parseSizeToArea(sizeStr) {
+  if (!sizeStr) return 0;
+  const match = sizeStr.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+  if (!match) return 0;
+  return Number(match[1]) * Number(match[2]);
+}
+
+function estimateMaterialUsage(order) {
+  const usage = {};
+  const area = parseSizeToArea(order.size);
+  const ratio = Math.max(PAPER_AREA_RATIO(area || 69 * 138), 0.5);
+
+  const paperName = order.paper || "";
+  if (paperName.includes("楮皮")) {
+    usage["M-001"] = Math.ceil(ratio);
+  } else if (paperName.includes("云母")) {
+    usage["M-002"] = Math.ceil(ratio);
+  } else if (paperName.includes("宣")) {
+    usage["M-003"] = Math.ceil(ratio);
+  } else {
+    usage["M-001"] = Math.ceil(ratio);
+  }
+
+  const inkPlan = order.inkPlan || "";
+  if (inkPlan.includes("墨")) {
+    usage["M-004"] = Math.ceil(5 * ratio);
+  }
+  if (inkPlan.includes("朱砂") || inkPlan.includes("朱")) {
+    usage["M-005"] = Math.ceil(3 * ratio);
+  }
+
+  const mounting = order.mounting || "";
+  if (mounting.includes("立轴") || mounting.includes("轴")) {
+    usage["M-006"] = 1;
+  }
+
+  return usage;
+}
 const seed = {
+  materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)),
+  materialTransactions: [],
   orders: [
     {
       id: "FT-2601",
@@ -117,6 +180,37 @@ async function saveDb(db) {
 
 async function migrateLegacyData(db) {
   let changed = false;
+  if (!db.materials) {
+    db.materials = JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
+    changed = true;
+  } else {
+    for (const def of DEFAULT_MATERIALS) {
+      if (!db.materials.find(m => m.id === def.id)) {
+        db.materials.push(JSON.parse(JSON.stringify(def)));
+        changed = true;
+      }
+    }
+  }
+  if (!db.materialTransactions) {
+    db.materialTransactions = [];
+    changed = true;
+  }
+  if (!db._materialMigrated) {
+    for (const order of (db.orders || [])) {
+      if (!order.materialUsage && order.status !== "已完成") {
+        order.materialUsage = estimateMaterialUsage(order);
+        for (const [matId, qty] of Object.entries(order.materialUsage)) {
+          const mat = db.materials.find(m => m.id === matId);
+          if (mat) {
+            mat.reserved = (mat.reserved || 0) + qty;
+          }
+        }
+        changed = true;
+      }
+    }
+    db._materialMigrated = true;
+    changed = true;
+  }
   if (!db.customers) { db.customers = []; changed = true; }
   if (!db._customerMigrated) {
     const nameToId = new Map(db.customers.map(c => [c.name, c.id]));
@@ -415,7 +509,33 @@ function page() {
     .task-actions button.secondary { background:var(--muted); }
     .schedule-add-btn { width:100%; padding:8px; border:2px dashed var(--line); background:transparent; color:var(--muted); border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
     .schedule-add-btn:hover { border-color:var(--accent); color:var(--accent); background:#eef4f1; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } }
+    .stock-warn { color:#9b2c2c; font-weight:700; }
+    .stock-ok { color:#246b68; }
+    .stock-card { display:grid; gap:8px; }
+    .stock-info { display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px; }
+    .stock-info .label { color:var(--muted); }
+    .stock-info .value { font-weight:600; }
+    .stock-row { display:flex; gap:8px; }
+    .stock-row button { flex:1; }
+    .tx-type-in { color:#246b68; }
+    .tx-type-out { color:#9b2c2c; }
+    .tx-list { max-height:400px; overflow-y:auto; }
+    .tx-item { display:grid; grid-template-columns:120px 1fr auto; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); align-items:center; font-size:13px; }
+    .tx-item:last-child { border-bottom:none; }
+    .tx-time { color:var(--muted); font-size:11px; }
+    .tx-material { font-weight:600; }
+    .tx-note { color:var(--muted); font-size:12px; }
+    .form-estimate { margin-top:12px; padding:12px; background:var(--bg); border-radius:6px; display:none; }
+    .form-estimate.active { display:block; }
+    .estimate-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
+    .estimate-row.shortage { color:#9b2c2c; font-weight:700; }
+    .estimate-title { font-weight:700; margin-bottom:8px; }
+    .order-card-stock { margin-top:8px; padding:8px; border-radius:6px; font-size:12px; }
+    .order-card-stock.warn { background:#fce4e4; color:#9b2c2c; border:1px solid #e8b4b4; }
+    .order-card-stock.ok { background:#eef4f1; color:#246b68; border:1px solid #cddbd6; }
+    .material-modal-form { display:grid; gap:10px; }
+    .material-modal-form .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -427,6 +547,7 @@ function page() {
       <div class="tab" data-tab="calendar">交付日历</div>
       <div class="tab" data-tab="works">作品档案</div>
       <div class="tab" data-tab="customers">客户档案</div>
+      <div class="tab" data-tab="materials">材料库存</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
@@ -457,6 +578,10 @@ function page() {
           <label>负责人</label><input name="owner" required>
           <label>报价（元）</label><input name="price" type="number" min="0" required>
           <label>交付日期</label><input name="dueDate" type="date" required>
+          <div class="form-estimate" id="form-estimate">
+            <div class="estimate-title">材料预估</div>
+            <div id="estimate-content"></div>
+          </div>
           <button>保存委托</button>
         </form>
         <section>
@@ -542,6 +667,27 @@ function page() {
           <button class="back-btn" id="back-to-customers">← 返回客户列表</button>
         </div>
         <div id="customer-detail-container"></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-materials">
+      <div class="stats" id="material-stats"></div>
+      <div class="section-title-row">
+        <h2 style="margin:0;">材料库存</h2>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <select id="material-category-filter"><option value="">全部分类</option></select>
+          <button id="add-material-btn">+ 新增材料</button>
+        </div>
+      </div>
+      <div class="grid" id="materials-grid" style="margin-bottom:24px;"></div>
+      <div class="section-title-row">
+        <h2 style="margin:0;">库存流水</h2>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <select id="tx-material-filter"><option value="">全部材料</option></select>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="tx-list" id="tx-list"></div>
       </div>
     </div>
   </main>
@@ -639,8 +785,45 @@ function page() {
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="material-modal-overlay">
+    <div class="modal">
+      <h3 id="material-modal-title">新增材料</h3>
+      <div class="modal-sub" id="material-modal-sub"></div>
+      <div class="material-modal-form">
+        <label>材料名称</label><input id="mm-name" required>
+        <div class="row">
+          <div><label>分类</label><select id="mm-category"><option value="纸张">纸张</option><option value="墨料">墨料</option><option value="朱砂">朱砂</option><option value="装裱轴头">装裱轴头</option></select></div>
+          <div><label>计量单位</label><input id="mm-unit" placeholder="如：张、克、对"></div>
+        </div>
+        <div class="row">
+          <div><label>初始库存</label><input id="mm-stock" type="number" min="0" value="0"></div>
+          <div><label>预警阈值</label><input id="mm-threshold" type="number" min="0" value="0"></div>
+        </div>
+        <label>备注</label><textarea id="mm-note"></textarea>
+      </div>
+      <div id="mm-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="mm-close">取消</button>
+        <button id="mm-save">保存</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="stock-in-modal-overlay">
+    <div class="modal">
+      <h3 id="stockin-modal-title">材料入库</h3>
+      <div class="modal-sub" id="stockin-modal-sub"></div>
+      <label>入库数量</label><input id="si-quantity" type="number" min="1" step="1">
+      <label>备注</label><input id="si-note" placeholder="如：采购入库、盘点等">
+      <div id="si-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="si-close">取消</button>
+        <button id="si-confirm">确认入库</button>
+      </div>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
+    const MATERIAL_CATEGORIES = ${JSON.stringify(MATERIAL_CATEGORIES)};
     const scheduleStages = ${JSON.stringify(scheduleStages)};
     const MAX_TASKS_PER_DAY = ${MAX_TASKS_PER_DAY};
     let orders = [];
@@ -648,6 +831,8 @@ function page() {
     let customers = [];
     let assignees = [];
     let scheduleTasks = [];
+    let materials = [];
+    let materialTransactions = [];
     let currentTab = "orders";
     let calendarOrders = [];
     let currentYear = new Date().getFullYear();
@@ -663,6 +848,11 @@ function page() {
     let customerDetailTab = "orders";
     let customerSearchKeyword = "";
     let afterCustomerCreated = null;
+    let editingMaterialId = null;
+    let stockInMaterialId = null;
+    let materialCategoryFilter = "";
+    let txMaterialFilter = "";
+    let formEstimateResult = null;
 
     async function api(path, options) {
       const res = await fetch(path, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
@@ -710,7 +900,25 @@ function page() {
               : '<button data-archive="'+o.id+'">一键归档到作品</button>')
           : "";
         const pi = getPaidInfo(o);
-        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div><div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div><label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
+        let stockHtml = "";
+        if (o.status !== "已完成" && o.materialUsage) {
+          const shortageItems = [];
+          for (const [matId, qty] of Object.entries(o.materialUsage)) {
+            const mat = materials.find(m => m.id === matId);
+            if (mat) {
+              const available = (mat.stock || 0) - (mat.reserved || 0);
+              if (available < qty) {
+                shortageItems.push(mat.name + "（需 " + qty + mat.unit + "，可用 " + available + mat.unit + "）");
+              }
+            }
+          }
+          if (shortageItems.length > 0) {
+            stockHtml = '<div class="order-card-stock warn">⚠️ 材料库存不足：' + shortageItems.join("；") + '</div>';
+          } else {
+            stockHtml = '<div class="order-card-stock ok">✓ 材料库存充足</div>';
+          }
+        }
+        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div><div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+'<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
       }).join("");
       document.querySelectorAll("[data-id]").forEach(sel => { sel.value = orders.find(o => o.id === sel.dataset.id).status; });
       document.querySelectorAll("[data-save]").forEach(btn => btn.onclick = async () => {
@@ -952,6 +1160,122 @@ function page() {
         document.querySelector("#cm-note").value = "";
       }
       overlay.classList.add("active");
+    }
+
+    function renderMaterials() {
+      const statsEl = document.querySelector("#material-stats");
+      const gridEl = document.querySelector("#materials-grid");
+      const txListEl = document.querySelector("#tx-list");
+      const catFilter = document.querySelector("#material-category-filter");
+      const txFilter = document.querySelector("#tx-material-filter");
+
+      const categories = [...new Set(materials.map(m => m.category))];
+      const prevCat = catFilter.value;
+      catFilter.innerHTML = '<option value="">全部分类</option>' + categories.map(c => '<option value="'+c+'">'+c+'</option>').join("");
+      catFilter.value = prevCat || materialCategoryFilter;
+
+      const prevTx = txFilter.value;
+      txFilter.innerHTML = '<option value="">全部材料</option>' + materials.map(m => '<option value="'+m.id+'">'+m.name+'</option>').join("");
+      txFilter.value = prevTx || txMaterialFilter;
+
+      const totalTypes = materials.length;
+      const lowStock = materials.filter(m => m.isLow).length;
+      const totalReserved = materials.reduce((s, m) => s + (m.reserved || 0), 0);
+      statsEl.innerHTML = '<div class="stat"><span>材料种类</span><strong>'+totalTypes+'</strong></div>'
+        + '<div class="stat"><span>库存预警</span><strong class="'+(lowStock>0?'stock-warn':'')+'">'+lowStock+'</strong></div>'
+        + '<div class="stat"><span>预估占用</span><strong>'+totalReserved+'</strong></div>'
+        + '<div class="stat stat-total" style="grid-column:span 3;"><span>库存总览</span><strong>共 '+totalTypes+' 种材料</strong></div>';
+
+      const filtered = materialCategoryFilter ? materials.filter(m => m.category === materialCategoryFilter) : materials;
+      if (filtered.length === 0) {
+        gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无材料数据</div>';
+      } else {
+        gridEl.innerHTML = filtered.map(m => {
+          const available = (m.stock || 0) - (m.reserved || 0);
+          const warnCls = m.isLow ? 'stock-warn' : 'stock-ok';
+          return '<article class="card stock-card" data-material-id="'+m.id+'">'
+            + '<div class="row"><h3>'+m.name+'</h3><span class="pill">'+m.category+'</span></div>'
+            + (m.note ? '<div class="meta">'+m.note+'</div>' : '')
+            + '<div class="stock-info">'
+            + '<div><span class="label">总库存</span><span class="value">'+(m.stock||0)+' '+m.unit+'</span></div>'
+            + '<div><span class="label">预估占用</span><span class="value">'+(m.reserved||0)+' '+m.unit+'</span></div>'
+            + '<div><span class="label">可用库存</span><span class="value '+warnCls+'">'+available+' '+m.unit+'</span></div>'
+            + '<div><span class="label">预警阈值</span><span class="value">'+(m.threshold||0)+' '+m.unit+'</span></div>'
+            + '</div>'
+            + (m.isLow ? '<div class="order-card-stock warn">⚠️ 库存不足，建议及时补货</div>' : '')
+            + '<div class="stock-row">'
+            + '<button data-stock-in="'+m.id+'">入库</button>'
+            + '<button class="secondary" data-edit-material="'+m.id+'">编辑</button>'
+            + '</div>'
+            + '</article>';
+        }).join("");
+      }
+
+      document.querySelectorAll("[data-stock-in]").forEach(btn => btn.onclick = () => openStockInModal(btn.dataset.stockIn));
+      document.querySelectorAll("[data-edit-material]").forEach(btn => btn.onclick = () => openMaterialModal(btn.dataset.editMaterial));
+
+      const txFiltered = txMaterialFilter ? materialTransactions.filter(t => t.materialId === txMaterialFilter) : materialTransactions;
+      if (txFiltered.length === 0) {
+        txListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">暂无流水记录</div>';
+      } else {
+        txListEl.innerHTML = txFiltered.slice(0, 100).map(t => {
+          const typeCls = t.type === "入库" ? "tx-type-in" : "tx-type-out";
+          const qtySign = t.type === "入库" ? "+" : "-";
+          return '<div class="tx-item">'
+            + '<div><div class="tx-material">'+t.materialName+'</div><div class="tx-time">'+fmtDate(t.at)+'</div></div>'
+            + '<div><div><span class="'+typeCls+'"><strong>'+t.type+' '+qtySign+t.quantity+' '+t.materialUnit+'</strong></span></div>'
+            + (t.note ? '<div class="tx-note">'+t.note+'</div>' : '')
+            + (t.orderId ? '<div class="tx-note">关联订单：'+t.orderId+'</div>' : '')
+            + '</div>'
+            + '<div style="text-align:right;"><div class="meta">'+t.before+' → '+t.after+'</div></div>'
+            + '</div>';
+        }).join("");
+      }
+    }
+
+    function openMaterialModal(materialId) {
+      editingMaterialId = materialId || null;
+      const overlay = document.querySelector("#material-modal-overlay");
+      const title = document.querySelector("#material-modal-title");
+      const sub = document.querySelector("#material-modal-sub");
+      const errorEl = document.querySelector("#mm-error");
+      errorEl.style.display = "none";
+      if (editingMaterialId) {
+        const m = materials.find(x => x.id === editingMaterialId);
+        if (!m) return;
+        title.textContent = "编辑材料";
+        sub.textContent = m.id;
+        document.querySelector("#mm-name").value = m.name || "";
+        document.querySelector("#mm-category").value = m.category || "纸张";
+        document.querySelector("#mm-unit").value = m.unit || "";
+        document.querySelector("#mm-stock").value = m.stock || 0;
+        document.querySelector("#mm-threshold").value = m.threshold || 0;
+        document.querySelector("#mm-note").value = m.note || "";
+        document.querySelector("#mm-stock").disabled = true;
+      } else {
+        title.textContent = "新增材料";
+        sub.textContent = "";
+        document.querySelector("#mm-name").value = "";
+        document.querySelector("#mm-category").value = "纸张";
+        document.querySelector("#mm-unit").value = "";
+        document.querySelector("#mm-stock").value = 0;
+        document.querySelector("#mm-threshold").value = 0;
+        document.querySelector("#mm-note").value = "";
+        document.querySelector("#mm-stock").disabled = false;
+      }
+      overlay.classList.add("active");
+    }
+
+    function openStockInModal(materialId) {
+      const m = materials.find(x => x.id === materialId);
+      if (!m) return;
+      stockInMaterialId = materialId;
+      document.querySelector("#stockin-modal-title").textContent = "材料入库 · " + m.name;
+      document.querySelector("#stockin-modal-sub").textContent = "当前可用："+((m.stock||0)-(m.reserved||0))+" "+m.unit+" · 总库存："+(m.stock||0)+" "+m.unit;
+      document.querySelector("#si-quantity").value = "";
+      document.querySelector("#si-note").value = "";
+      document.querySelector("#si-error").style.display = "none";
+      document.querySelector("#stock-in-modal-overlay").classList.add("active");
     }
 
     function getOrderClass(order) {
@@ -1376,6 +1700,7 @@ function page() {
       else if (currentTab === "calendar") renderCalendar();
       else if (currentTab === "works") renderWorks();
       else if (currentTab === "customers") renderCustomers();
+      else if (currentTab === "materials") renderMaterials();
     }
 
     async function load() {
@@ -1383,11 +1708,15 @@ function page() {
       works = await api("/api/works");
       customers = await api("/api/customers");
       assignees = await api("/api/assignees");
+      materials = await api("/api/materials");
       if (currentTab === "calendar") {
         calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
       }
       if (currentTab === "schedule") {
         scheduleTasks = await loadScheduleTasks();
+      }
+      if (currentTab === "materials") {
+        materialTransactions = await api("/api/materials/transactions");
       }
       render();
     }
@@ -1415,6 +1744,10 @@ function page() {
         await loadCalendar();
       } else if (currentTab === "schedule") {
         scheduleTasks = await loadScheduleTasks();
+        render();
+      } else if (currentTab === "materials") {
+        materials = await api("/api/materials");
+        materialTransactions = await api("/api/materials/transactions");
         render();
       } else {
         render();
@@ -1449,6 +1782,146 @@ function page() {
       currentMonth = Number(document.querySelector("#cal-month").value);
       loadCalendar();
     };
+    document.querySelector("#material-category-filter")?.addEventListener("change", (e) => {
+      materialCategoryFilter = e.target.value;
+      renderMaterials();
+    });
+    document.querySelector("#tx-material-filter")?.addEventListener("change", (e) => {
+      txMaterialFilter = e.target.value;
+      renderMaterials();
+    });
+    document.querySelector("#add-material-btn")?.addEventListener("click", () => openMaterialModal());
+
+    async function updateFormEstimate() {
+      const form = document.querySelector("#form");
+      if (!form) return;
+      const data = Object.fromEntries(new FormData(form).entries());
+      if (!data.paper && !data.size && !data.inkPlan && !data.mounting) {
+        document.querySelector("#form-estimate").classList.remove("active");
+        formEstimateResult = null;
+        return;
+      }
+      try {
+        const result = await api("/api/materials/estimate", {
+          method: "POST",
+          body: JSON.stringify(data)
+        });
+        formEstimateResult = result;
+        const estimateEl = document.querySelector("#form-estimate");
+        const contentEl = document.querySelector("#estimate-content");
+        if (result.details && result.details.length > 0) {
+          estimateEl.classList.add("active");
+          contentEl.innerHTML = result.details.map(d => {
+            const cls = d.isShortage ? "estimate-row shortage" : "estimate-row";
+            const warnText = d.isShortage ? " ⚠️ 不足" : "";
+            return '<div class="'+cls+'"><span>'+d.name+'</span><span>需 '+d.required+' '+d.unit+' · 可用 '+d.available+' '+d.unit+warnText+'</span></div>';
+          }).join("");
+        } else {
+          estimateEl.classList.remove("active");
+        }
+      } catch (e) {
+        document.querySelector("#form-estimate").classList.remove("active");
+      }
+    }
+
+    let estimateTimer = null;
+    ["paper", "size", "inkPlan", "mounting"].forEach(name => {
+      const el = document.querySelector('[name="'+name+'"]');
+      if (el) {
+        el.addEventListener("input", () => {
+          clearTimeout(estimateTimer);
+          estimateTimer = setTimeout(updateFormEstimate, 300);
+        });
+        el.addEventListener("change", updateFormEstimate);
+      }
+    });
+
+    document.querySelector("#mm-close")?.addEventListener("click", () => {
+      document.querySelector("#material-modal-overlay").classList.remove("active");
+      editingMaterialId = null;
+    });
+    document.querySelector("#material-modal-overlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "material-modal-overlay") {
+        document.querySelector("#material-modal-overlay").classList.remove("active");
+        editingMaterialId = null;
+      }
+    });
+    document.querySelector("#mm-save")?.addEventListener("click", async () => {
+      const name = document.querySelector("#mm-name").value.trim();
+      const category = document.querySelector("#mm-category").value;
+      const unit = document.querySelector("#mm-unit").value.trim();
+      const stock = Number(document.querySelector("#mm-stock").value || 0);
+      const threshold = Number(document.querySelector("#mm-threshold").value || 0);
+      const note = document.querySelector("#mm-note").value.trim();
+      const errorEl = document.querySelector("#mm-error");
+      if (!name) {
+        errorEl.textContent = "材料名称不能为空";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!unit) {
+        errorEl.textContent = "请填写计量单位";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        if (editingMaterialId) {
+          await api("/api/materials/"+editingMaterialId, {
+            method: "PUT",
+            body: JSON.stringify({ name, category, unit, threshold, note })
+          });
+        } else {
+          await api("/api/materials", {
+            method: "POST",
+            body: JSON.stringify({ name, category, unit, stock, threshold, note })
+          });
+        }
+        document.querySelector("#material-modal-overlay").classList.remove("active");
+        editingMaterialId = null;
+        materials = await api("/api/materials");
+        renderMaterials();
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    });
+
+    document.querySelector("#si-close")?.addEventListener("click", () => {
+      document.querySelector("#stock-in-modal-overlay").classList.remove("active");
+      stockInMaterialId = null;
+    });
+    document.querySelector("#stock-in-modal-overlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "stock-in-modal-overlay") {
+        document.querySelector("#stock-in-modal-overlay").classList.remove("active");
+        stockInMaterialId = null;
+      }
+    });
+    document.querySelector("#si-confirm")?.addEventListener("click", async () => {
+      if (!stockInMaterialId) return;
+      const quantity = Number(document.querySelector("#si-quantity").value || 0);
+      const note = document.querySelector("#si-note").value.trim();
+      const errorEl = document.querySelector("#si-error");
+      if (quantity <= 0) {
+        errorEl.textContent = "入库数量必须大于0";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        await api("/api/materials/"+stockInMaterialId+"/stock-in", {
+          method: "POST",
+          body: JSON.stringify({ quantity, note })
+        });
+        document.querySelector("#stock-in-modal-overlay").classList.remove("active");
+        stockInMaterialId = null;
+        materials = await api("/api/materials");
+        materialTransactions = await api("/api/materials/transactions");
+        renderMaterials();
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    });
+
     document.querySelector("#modal-close").onclick = () => {
       document.querySelector("#modal-overlay").classList.remove("active");
     };
@@ -1816,7 +2289,140 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       return res.end(page());
     }
-    if (req.method === "GET" && url.pathname === "/api/orders") return sendJson(res, 200, db.orders);
+    if (req.method === "GET" && url.pathname === "/api/materials") {
+      const withAvailability = db.materials.map(m => ({
+        ...m,
+        available: (m.stock || 0) - (m.reserved || 0),
+        isLow: ((m.stock || 0) - (m.reserved || 0)) <= (m.threshold || 0)
+      }));
+      return sendJson(res, 200, withAvailability);
+    }
+    if (req.method === "POST" && url.pathname === "/api/materials") {
+      const input = await body(req);
+      if (!input.name || !input.name.trim()) return sendJson(res, 400, { error: "材料名称不能为空" });
+      if (!input.category) return sendJson(res, 400, { error: "请选择材料分类" });
+      if (!input.unit) return sendJson(res, 400, { error: "请填写计量单位" });
+      const mat = {
+        id: `M-${Date.now()}`,
+        name: input.name.trim(),
+        category: input.category,
+        unit: input.unit,
+        stock: Number(input.stock || 0),
+        reserved: 0,
+        threshold: Number(input.threshold || 0),
+        note: input.note || ""
+      };
+      db.materials.push(mat);
+      if (mat.stock > 0) {
+        db.materialTransactions.push({
+          id: `TX-${Date.now()}`,
+          materialId: mat.id,
+          type: "入库",
+          quantity: mat.stock,
+          before: 0,
+          after: mat.stock,
+          orderId: null,
+          note: "初始库存",
+          at: new Date().toISOString()
+        });
+      }
+      await saveDb(db);
+      return sendJson(res, 201, { ...mat, available: mat.stock, isLow: mat.stock <= mat.threshold });
+    }
+    if (req.method === "POST" && url.pathname === "/api/materials/estimate") {
+      const input = await body(req);
+      const usage = estimateMaterialUsage(input);
+      const details = [];
+      let hasShortage = false;
+      for (const [matId, qty] of Object.entries(usage)) {
+        const mat = db.materials.find(m => m.id === matId);
+        if (mat) {
+          const available = (mat.stock || 0) - (mat.reserved || 0);
+          const shortage = available < qty;
+          if (shortage) hasShortage = true;
+          details.push({
+            materialId: mat.id,
+            name: mat.name,
+            category: mat.category,
+            unit: mat.unit,
+            required: qty,
+            available,
+            isShortage: shortage
+          });
+        }
+      }
+      return sendJson(res, 200, { usage, details, hasShortage });
+    }
+    if (req.method === "GET" && url.pathname === "/api/materials/transactions") {
+      const materialId = url.searchParams.get("materialId");
+      let list = db.materialTransactions || [];
+      if (materialId) {
+        list = list.filter(t => t.materialId === materialId);
+      }
+      list = [...list].sort((a, b) => new Date(b.at) - new Date(a.at));
+      const withMaterial = list.map(t => {
+        const mat = db.materials.find(m => m.id === t.materialId);
+        return { ...t, materialName: mat ? mat.name : "未知材料", materialUnit: mat ? mat.unit : "" };
+      });
+      return sendJson(res, 200, withMaterial);
+    }
+    const stockInMatch = url.pathname.match(/^\/api\/materials\/([^/]+)\/stock-in$/);
+    if (stockInMatch && req.method === "POST") {
+      const mat = db.materials.find(m => m.id === stockInMatch[1]);
+      if (!mat) return sendJson(res, 404, { error: "material_not_found" });
+      const input = await body(req);
+      const qty = Number(input.quantity || 0);
+      if (qty <= 0) return sendJson(res, 400, { error: "入库数量必须大于0" });
+      const before = mat.stock || 0;
+      mat.stock = before + qty;
+      db.materialTransactions.push({
+        id: `TX-${Date.now()}`,
+        materialId: mat.id,
+        type: "入库",
+        quantity: qty,
+        before,
+        after: mat.stock,
+        orderId: null,
+        note: input.note || "",
+        at: new Date().toISOString()
+      });
+      await saveDb(db);
+      return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
+    }
+    const matUpdateMatch = url.pathname.match(/^\/api\/materials\/([^/]+)$/);
+    if (matUpdateMatch) {
+      const mat = db.materials.find(m => m.id === matUpdateMatch[1]);
+      if (!mat) return sendJson(res, 404, { error: "material_not_found" });
+      if (req.method === "PUT") {
+        const input = await body(req);
+        if (input.name !== undefined) mat.name = input.name.trim();
+        if (input.category !== undefined) mat.category = input.category;
+        if (input.unit !== undefined) mat.unit = input.unit;
+        if (input.threshold !== undefined) mat.threshold = Number(input.threshold || 0);
+        if (input.note !== undefined) mat.note = input.note || "";
+        await saveDb(db);
+        return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
+      }
+    }
+    if (req.method === "GET" && url.pathname === "/api/orders") {
+      const ordersWithStock = db.orders.map(o => {
+        let stockStatus = "ok";
+        if (o.status !== "已完成" && o.materialUsage) {
+          for (const [matId, qty] of Object.entries(o.materialUsage)) {
+            const mat = db.materials.find(m => m.id === matId);
+            if (mat) {
+              const available = (mat.stock || 0) - (mat.reserved || 0);
+              if (available < qty) {
+                stockStatus = "shortage";
+                break;
+              }
+            }
+          }
+        }
+        return { ...o, stockStatus };
+      });
+      return sendJson(res, 200, ordersWithStock);
+    }
     if (req.method === "GET" && url.pathname === "/api/assignees") {
       const assignees = new Set();
       db.orders.forEach(o => {
@@ -1928,6 +2534,7 @@ const server = http.createServer(async (req, res) => {
           updatedAt: new Date().toISOString()
         }
       ];
+      const materialUsage = estimateMaterialUsage(input);
       const order = {
         id: orderId,
         ...input,
@@ -1938,9 +2545,16 @@ const server = http.createServer(async (req, res) => {
         payments: [],
         status: "待拓印",
         tasks: initialTasks,
+        materialUsage,
         history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }]
       };
       delete order.newCustomer;
+      for (const [matId, qty] of Object.entries(materialUsage)) {
+        const mat = db.materials.find(m => m.id === matId);
+        if (mat) {
+          mat.reserved = (mat.reserved || 0) + qty;
+        }
+      }
       db.orders.unshift(order);
       await saveDb(db);
       return sendJson(res, 201, order);
@@ -1953,6 +2567,52 @@ const server = http.createServer(async (req, res) => {
       const oldStatus = order.status;
       order.status = input.status;
       order.history.push({ at: new Date().toISOString(), stage: input.status, note: input.note || "" });
+
+      if (input.status === "已完成" && oldStatus !== "已完成" && order.materialUsage) {
+        for (const [matId, qty] of Object.entries(order.materialUsage)) {
+          const mat = db.materials.find(m => m.id === matId);
+          if (mat) {
+            const beforeStock = mat.stock || 0;
+            const beforeReserved = mat.reserved || 0;
+            mat.stock = Math.max(0, beforeStock - qty);
+            mat.reserved = Math.max(0, beforeReserved - qty);
+            db.materialTransactions.push({
+              id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              materialId: mat.id,
+              type: "出库",
+              quantity: qty,
+              before: beforeStock,
+              after: mat.stock,
+              orderId: order.id,
+              note: `订单 ${order.id} 完成，扣减实际用量`,
+              at: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      if (input.status !== "已完成" && oldStatus === "已完成" && order.materialUsage) {
+        for (const [matId, qty] of Object.entries(order.materialUsage)) {
+          const mat = db.materials.find(m => m.id === matId);
+          if (mat) {
+            const beforeStock = mat.stock || 0;
+            mat.stock = beforeStock + qty;
+            mat.reserved = (mat.reserved || 0) + qty;
+            db.materialTransactions.push({
+              id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              materialId: mat.id,
+              type: "入库",
+              quantity: qty,
+              before: beforeStock,
+              after: mat.stock,
+              orderId: order.id,
+              note: `订单 ${order.id} 状态回退，恢复材料`,
+              at: new Date().toISOString()
+            });
+          }
+        }
+      }
+
       if (scheduleStages.includes(input.status)) {
         if (!order.tasks) order.tasks = [];
         const existingTask = order.tasks.find(t => t.stage === input.status);
