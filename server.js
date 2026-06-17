@@ -590,7 +590,46 @@ function page() {
     #cr-fields input[type="checkbox"] { margin:0; }
     #cr-fields input[type="text"], #cr-fields input[type="number"], #cr-fields input[type="date"], #cr-fields textarea { margin-bottom:6px; }
     .cr-tip { padding:10px 12px; background:#fff7e6; border:1px solid #ffe58f; border-radius:6px; font-size:13px; color:#8a6d3b; margin-bottom:12px; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } }
+    .dashboard-filters { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
+    .dashboard-filters .period-btn { padding:8px 16px; border:2px solid var(--line); background:transparent; color:var(--muted); font-weight:700; cursor:pointer; border-radius:6px; transition:all 0.15s; }
+    .dashboard-filters .period-btn.active { border-color:var(--accent); background:var(--accent); color:#fff; }
+    .dashboard-filters .period-btn:hover:not(.active) { border-color:var(--accent); color:var(--accent); }
+    .dashboard-filters input[type="date"] { width:auto; padding:7px 10px; }
+    .dashboard-date-range { margin-left:auto; font-size:13px; color:var(--muted); font-weight:600; }
+    .dashboard-stats { display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:12px; margin-bottom:16px; }
+    .dashboard-stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:4px; }
+    .dashboard-stat .ds-label { font-size:13px; color:var(--muted); }
+    .dashboard-stat .ds-value { font-size:28px; font-weight:700; color:var(--ink); }
+    .dashboard-stat .ds-value.accent { color:var(--accent); }
+    .dashboard-stat .ds-value.warn { color:var(--warn); }
+    .dashboard-stat .ds-value.danger { color:#9b2c2c; }
+    .dashboard-section { margin-bottom:20px; }
+    .dashboard-section h3 { margin:0 0 12px; font-size:16px; color:var(--ink); }
+    .dashboard-stage-bar { display:flex; height:28px; border-radius:6px; overflow:hidden; margin-bottom:6px; }
+    .dashboard-stage-bar .stage-seg { display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; min-width:0; overflow:hidden; white-space:nowrap; transition:width 0.3s; }
+    .dashboard-stage-legend { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+    .dashboard-stage-legend .legend-item { display:flex; align-items:center; gap:4px; font-size:12px; color:var(--muted); }
+    .dashboard-stage-legend .legend-dot { width:10px; height:10px; border-radius:3px; }
+    .dashboard-owner-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+    .dashboard-owner-card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:6px; }
+    .dashboard-owner-card .owner-name { font-weight:700; font-size:15px; }
+    .dashboard-owner-card .owner-stat { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); }
+    .dashboard-owner-card .owner-stat strong { color:var(--ink); }
+    .dashboard-detail-table { width:100%; border-collapse:collapse; background:var(--panel); border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+    .dashboard-detail-table th { background:var(--bg); padding:10px 12px; text-align:left; font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); font-weight:600; }
+    .dashboard-detail-table td { padding:10px 12px; font-size:13px; border-bottom:1px solid var(--line); }
+    .dashboard-detail-table tr:last-child td { border-bottom:none; }
+    .dashboard-detail-table tr:hover { background:#f8faf9; }
+    .dashboard-empty { text-align:center; padding:48px 20px; color:var(--muted); }
+    .dashboard-empty .empty-icon { font-size:48px; margin-bottom:12px; opacity:0.4; }
+    .dashboard-empty .empty-text { font-size:15px; font-weight:600; margin-bottom:6px; }
+    .dashboard-empty .empty-sub { font-size:13px; }
+    .dashboard-overdue-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; background:#fce4e4; color:#9b2c2c; }
+    .dashboard-paid-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+    .dashboard-paid-badge.full { background:#dff0ed; color:#1e5854; }
+    .dashboard-paid-badge.partial { background:#fde8d8; color:#8a4a1e; }
+    .dashboard-paid-badge.none { background:#fce4e4; color:#9b2c2c; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } }
   </style>
 </head>
 <body>
@@ -604,6 +643,7 @@ function page() {
       <div class="tab" data-tab="customers">客户档案</div>
       <div class="tab" data-tab="materials">材料库存</div>
       <div class="tab" data-tab="changes">变更审批</div>
+      <div class="tab" data-tab="dashboard">经营看板</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
@@ -758,6 +798,37 @@ function page() {
         </select>
       </div>
       <div class="grid" id="changes-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-dashboard">
+      <div class="dashboard-filters">
+        <button class="period-btn active" data-period="week">本周</button>
+        <button class="period-btn" data-period="month">本月</button>
+        <button class="period-btn" data-period="custom">自定义</button>
+        <input type="date" id="db-start" style="display:none;">
+        <span id="db-date-sep" style="display:none;">至</span>
+        <input type="date" id="db-end" style="display:none;">
+        <button id="db-apply-custom" style="display:none;padding:7px 14px;">查询</button>
+        <div class="dashboard-date-range" id="db-date-range"></div>
+      </div>
+      <div class="dashboard-stats" id="db-stats"></div>
+      <div class="dashboard-section" id="db-stage-section">
+        <h3>阶段分布</h3>
+        <div id="db-stage-bar"></div>
+        <div class="dashboard-stage-legend" id="db-stage-legend"></div>
+      </div>
+      <div class="dashboard-section" id="db-owner-section">
+        <h3>负责人工作量</h3>
+        <div class="dashboard-owner-grid" id="db-owner-grid"></div>
+      </div>
+      <div class="dashboard-section" id="db-overdue-section">
+        <h3>逾期订单</h3>
+        <div id="db-overdue-list"></div>
+      </div>
+      <div class="dashboard-section" id="db-detail-section">
+        <h3>订单明细</h3>
+        <div id="db-detail-list"></div>
+      </div>
     </div>
   </main>
   <div class="modal-overlay" id="modal-overlay">
@@ -988,6 +1059,8 @@ function page() {
     let currentChangeOrderId = null;
     let currentViewingChangeId = null;
     let changesFilter = "";
+    let dashboardData = null;
+    let dashboardPeriod = "week";
 
     async function api(path, options) {
       const res = await fetch(path, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
@@ -1416,6 +1489,106 @@ function page() {
       }).join("");
 
       document.querySelectorAll("[data-view-change]").forEach(btn => btn.onclick = () => openChangeDetailModal(btn.dataset.viewChange));
+    }
+
+    async function loadDashboard() {
+      let url = "/api/dashboard?period=" + dashboardPeriod;
+      if (dashboardPeriod === "custom") {
+        const start = document.querySelector("#db-start").value;
+        const end = document.querySelector("#db-end").value;
+        if (start) url += "&start=" + start;
+        if (end) url += "&end=" + end;
+      }
+      dashboardData = await api(url);
+      renderDashboard();
+    }
+
+    function renderDashboard() {
+      if (!dashboardData) return;
+      const d = dashboardData;
+      document.querySelector("#db-date-range").textContent = d.startDate + " 至 " + d.endDate;
+      const statsEl = document.querySelector("#db-stats");
+      const unpaid = d.totalReceivable - d.totalReceived;
+      const collectionRate = d.totalReceivable > 0 ? Math.round(d.totalReceived / d.totalReceivable * 100) : 0;
+      statsEl.innerHTML = ""
+        + '<div class="dashboard-stat"><div class="ds-label">订单数量</div><div class="ds-value accent">' + d.orderCount + '</div><div class="meta" style="font-size:12px;color:var(--muted);">已完成 ' + d.completedCount + ' 单 · 完成率 ' + d.completionRate + '%</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">应收金额</div><div class="ds-value warn">¥' + d.totalReceivable.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">均价 ¥' + d.avgOrderValue.toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">已收金额</div><div class="ds-value accent">¥' + d.totalReceived.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">收款率 ' + collectionRate + '%</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">未收金额</div><div class="ds-value ' + (unpaid > 0 ? "warn" : "accent") + '">¥' + unpaid.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">' + (unpaid > 0 ? '待催收' : '已收清') + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">逾期订单</div><div class="ds-value ' + (d.overdueCount > 0 ? "danger" : "accent") + '">' + d.overdueCount + '</div><div class="meta" style="font-size:12px;color:var(--muted);">' + (d.overdueCount > 0 ? '需尽快处理' : '按时交付中') + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">负责人</div><div class="ds-value accent">' + Object.keys(d.ownerWorkload).length + '</div><div class="meta" style="font-size:12px;color:var(--muted);">参与交付</div></div>';
+
+      const stageColors = ["#4a9e99", "#6bb8b3", "#e6a54a", "#c97b2a", "#9b2c2c"];
+      const barEl = document.querySelector("#db-stage-bar");
+      const legendEl = document.querySelector("#db-stage-legend");
+      if (d.orderCount === 0) {
+        barEl.innerHTML = "";
+        legendEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">暂无订单数据</div>';
+      } else {
+        barEl.innerHTML = stages.map((s, i) => {
+          const count = d.stageDistribution[s] || 0;
+          if (count === 0) return "";
+          const pct = Math.round(count / d.orderCount * 100);
+          return '<div class="stage-seg" style="width:' + pct + '%;background:' + stageColors[i] + ';" title="' + s + ': ' + count + ' 单 (' + pct + '%)">' + (pct >= 10 ? s + ' ' + pct + '%' : (pct >= 5 ? pct + '%' : '')) + '</div>';
+        }).join("");
+        legendEl.innerHTML = stages.map((s, i) => {
+          const count = d.stageDistribution[s] || 0;
+          const pct = d.orderCount > 0 ? Math.round(count / d.orderCount * 100) : 0;
+          return '<div class="legend-item"><div class="legend-dot" style="background:' + stageColors[i] + ';"></div>' + s + ' <strong style="color:var(--ink);margin-left:2px;">' + count + '</strong> <span style="opacity:0.6;">(' + pct + '%)</span></div>';
+        }).join("");
+      }
+
+      const ownerGridEl = document.querySelector("#db-owner-grid");
+      const ownerEntries = Object.entries(d.ownerWorkload);
+      if (ownerEntries.length === 0) {
+        ownerGridEl.innerHTML = '<div class="dashboard-empty"><div class="empty-icon">👥</div><div class="empty-text">暂无负责人数据</div><div class="empty-sub">还没有分配负责人的订单</div></div>';
+      } else {
+        ownerGridEl.innerHTML = ownerEntries.map(([name, wl]) => {
+          const ownerUnpaid = wl.totalAmount - wl.receivedAmount;
+          const ownerRate = wl.totalAmount > 0 ? Math.round(wl.receivedAmount / wl.totalAmount * 100) : 0;
+          return '<div class="dashboard-owner-card"><div class="owner-name">' + name + '</div>'
+            + '<div class="owner-stat"><span>负责订单</span><strong>' + wl.orderCount + ' 单</strong></div>'
+            + '<div class="owner-stat"><span>待办任务</span><strong>' + wl.taskCount + ' 项</strong></div>'
+            + '<div class="owner-stat"><span>已完成任务</span><strong>' + wl.completedTaskCount + ' 项</strong></div>'
+            + '<div class="owner-stat"><span>负责金额</span><strong>¥' + wl.totalAmount.toLocaleString() + '</strong></div>'
+            + '<div class="owner-stat"><span>已收/未收</span><strong>¥' + wl.receivedAmount.toLocaleString() + ' / ' + (ownerUnpaid > 0 ? '<span style="color:var(--warn);">' : '') + '¥' + ownerUnpaid.toLocaleString() + (ownerUnpaid > 0 ? '</span>' : '') + '</strong></div>'
+            + '<div class="owner-stat"><span>个人收款率</span><strong style="color:' + (ownerRate >= 100 ? 'var(--accent)' : 'var(--warn)') + ';">' + ownerRate + '%</strong></div></div>';
+        }).join("");
+      }
+
+      const overdueEl = document.querySelector("#db-overdue-list");
+      if (d.overdueOrders.length === 0) {
+        overdueEl.innerHTML = '<div class="dashboard-empty"><div class="empty-icon">✓</div><div class="empty-text">无逾期订单</div><div class="empty-sub">所有订单均在正常交付周期内</div></div>';
+      } else {
+        overdueEl.innerHTML = '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>委托人</th><th>鱼种</th><th>逾期天数</th><th>交付日期</th><th>当前阶段</th><th>负责人</th><th>金额</th></tr></thead><tbody>'
+          + d.overdueOrders.map(o => {
+            const pi = getPaidInfo(o);
+            return '<tr><td>' + o.id + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
+              + '<td><span class="dashboard-overdue-badge">逾期 ' + o.daysOverdue + ' 天</span></td>'
+              + '<td>' + o.dueDate + '</td>'
+              + '<td>' + o.status + '</td><td>' + o.owner + '</td>'
+              + '<td>¥' + (o.price || 0) + ' <span class="dashboard-paid-badge ' + pi.cls + '">' + pi.text + '</span></td></tr>';
+          }).join("")
+          + '</tbody></table>';
+      }
+
+      const detailEl = document.querySelector("#db-detail-list");
+      if (d.orders.length === 0) {
+        detailEl.innerHTML = '<div class="dashboard-empty"><div class="empty-icon">📋</div><div class="empty-text">所选时段内暂无订单</div><div class="empty-sub">尝试切换筛选条件查看其他时间段的数据</div></div>';
+      } else {
+        detailEl.innerHTML = '<div style="margin-bottom:10px;font-size:13px;color:var(--muted);">共 ' + d.orders.length + ' 条订单记录，按逾期优先级和交付日期排序</div>'
+          + '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>委托人</th><th>鱼种</th><th>阶段</th><th>负责人</th><th>报价</th><th>收款状态</th><th>交付日期</th></tr></thead><tbody>'
+          + d.orders.map(o => {
+            const pi = getPaidInfo(o);
+            const isOverdue = o.isOverdue;
+            return '<tr><td>' + o.id + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
+              + '<td>' + o.status + '</td><td>' + o.owner + '</td>'
+              + '<td>¥' + (o.price || 0) + '</td>'
+              + '<td><span class="dashboard-paid-badge ' + pi.cls + '">' + pi.text + '</span></td>'
+              + '<td>' + (isOverdue ? '<span class="dashboard-overdue-badge">逾期 ' + o.daysOverdue + ' 天</span>' : o.dueDate) + '</td></tr>';
+          }).join("")
+          + '</tbody></table>';
+      }
     }
 
     function openChangeRequestModal(orderId) {
@@ -2151,6 +2324,7 @@ function page() {
       else if (currentTab === "customers") renderCustomers();
       else if (currentTab === "materials") renderMaterials();
       else if (currentTab === "changes") renderChanges();
+      else if (currentTab === "dashboard") renderDashboard();
     }
 
     async function load() {
@@ -2168,6 +2342,9 @@ function page() {
       }
       if (currentTab === "materials") {
         materialTransactions = await api("/api/materials/transactions");
+      }
+      if (currentTab === "dashboard") {
+        await loadDashboard();
       }
       render();
     }
@@ -2203,6 +2380,8 @@ function page() {
       } else if (currentTab === "changes") {
         changeRequests = await api("/api/change-requests");
         render();
+      } else if (currentTab === "dashboard") {
+        await loadDashboard();
       } else {
         render();
       }
@@ -2212,6 +2391,29 @@ function page() {
     document.querySelector("#filter-species").onchange = renderWorks;
     document.querySelector("#filter-mounting").onchange = renderWorks;
     document.querySelector("#reload").onclick = load;
+
+    document.querySelectorAll(".period-btn").forEach(btn => btn.onclick = async () => {
+      document.querySelectorAll(".period-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      dashboardPeriod = btn.dataset.period;
+      const customStart = document.querySelector("#db-start");
+      const customEnd = document.querySelector("#db-end");
+      const dateSep = document.querySelector("#db-date-sep");
+      const applyBtn = document.querySelector("#db-apply-custom");
+      if (dashboardPeriod === "custom") {
+        customStart.style.display = "";
+        customEnd.style.display = "";
+        dateSep.style.display = "";
+        applyBtn.style.display = "";
+      } else {
+        customStart.style.display = "none";
+        customEnd.style.display = "none";
+        dateSep.style.display = "none";
+        applyBtn.style.display = "none";
+        await loadDashboard();
+      }
+    });
+    document.querySelector("#db-apply-custom")?.addEventListener("click", () => loadDashboard());
 
     document.querySelector("#cal-prev").onclick = () => {
       currentMonth--;
@@ -2907,6 +3109,126 @@ const server = http.createServer(async (req, res) => {
         await saveDb(db);
         return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
       }
+    }
+    if (req.method === "GET" && url.pathname === "/api/dashboard") {
+      const period = url.searchParams.get("period") || "week";
+      const customStart = url.searchParams.get("start");
+      const customEnd = url.searchParams.get("end");
+      const today = new Date();
+      const todayStr = today.toISOString().slice(0, 10);
+      let startDate, endDate;
+      if (period === "week") {
+        const dow = today.getDay();
+        const mondayOffset = dow === 0 ? -6 : 1 - dow;
+        const monday = new Date(today);
+        monday.setDate(today.getDate() + mondayOffset);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        startDate = monday.toISOString().slice(0, 10);
+        endDate = sunday.toISOString().slice(0, 10);
+      } else if (period === "month") {
+        startDate = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-01";
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        endDate = lastDay.toISOString().slice(0, 10);
+      } else {
+        startDate = customStart || todayStr;
+        endDate = customEnd || todayStr;
+      }
+      const filtered = db.orders.filter(o => {
+        const created = o.history && o.history[0] ? o.history[0].at.slice(0, 10) : (o.dueDate || "");
+        return created >= startDate && created <= endDate;
+      });
+      const orderCount = filtered.length;
+      const completedCount = filtered.filter(o => o.status === "已完成").length;
+      const stageDistribution = {};
+      for (const s of stages) stageDistribution[s] = 0;
+      filtered.forEach(o => {
+        if (stageDistribution[o.status] !== undefined) stageDistribution[o.status]++;
+      });
+      let totalReceivable = 0;
+      let totalReceived = 0;
+      filtered.forEach(o => {
+        const price = o.price || 0;
+        totalReceivable += price;
+        const payments = o.payments || [];
+        const paidSum = payments.reduce((s, p) => s + (p.amount || 0), 0);
+        if (o.paid && paidSum === 0) {
+          totalReceived += price;
+        } else {
+          totalReceived += paidSum;
+        }
+      });
+      const overdueOrders = filtered.filter(o => {
+        return o.status !== "已完成" && o.dueDate < todayStr;
+      });
+      const ownerWorkload = {};
+      filtered.forEach(o => {
+        if (!ownerWorkload[o.owner]) ownerWorkload[o.owner] = { 
+          orderCount: 0, 
+          taskCount: 0, 
+          completedTaskCount: 0,
+          totalAmount: 0,
+          receivedAmount: 0
+        };
+        ownerWorkload[o.owner].orderCount++;
+        ownerWorkload[o.owner].totalAmount += o.price || 0;
+        const payments = o.payments || [];
+        const paidSum = payments.reduce((s, p) => s + (p.amount || 0), 0);
+        if (o.paid && paidSum === 0) {
+          ownerWorkload[o.owner].receivedAmount += o.price || 0;
+        } else {
+          ownerWorkload[o.owner].receivedAmount += paidSum;
+        }
+        const tasks = (o.tasks || []);
+        ownerWorkload[o.owner].taskCount += tasks.filter(t => !t.completed).length;
+        ownerWorkload[o.owner].completedTaskCount += tasks.filter(t => t.completed).length;
+      });
+      const avgOrderValue = orderCount > 0 ? Math.round(totalReceivable / orderCount) : 0;
+      const completionRate = orderCount > 0 ? Math.round(completedCount / orderCount * 100) : 0;
+      return sendJson(res, 200, {
+        period,
+        startDate,
+        endDate,
+        orderCount,
+        completedCount,
+        completionRate,
+        avgOrderValue,
+        stageDistribution,
+        totalReceivable,
+        totalReceived,
+        overdueCount: overdueOrders.length,
+        overdueOrders: overdueOrders.map(o => {
+          const due = new Date(o.dueDate);
+          const now = new Date();
+          const daysOverdue = Math.ceil((now - due) / (1000 * 60 * 60 * 24));
+          return {
+            id: o.id, client: o.client, fishSpecies: o.fishSpecies,
+            dueDate: o.dueDate, status: o.status, owner: o.owner,
+            price: o.price || 0, paid: o.paid, payments: o.payments || [],
+            daysOverdue
+          };
+        }),
+        ownerWorkload,
+        orders: filtered.map(o => {
+          const isOverdue = o.status !== "已完成" && o.dueDate < todayStr;
+          const due = new Date(o.dueDate);
+          const now = new Date();
+          const daysOverdue = isOverdue ? Math.ceil((now - due) / (1000 * 60 * 60 * 24)) : 0;
+          return {
+            id: o.id, client: o.client, fishSpecies: o.fishSpecies,
+            size: o.size, status: o.status, owner: o.owner,
+            price: o.price || 0, paid: o.paid, payments: o.payments || [],
+            dueDate: o.dueDate, mounting: o.mounting, paper: o.paper,
+            inkPlan: o.inkPlan, inscription: o.inscription,
+            history: o.history || [], isOverdue, daysOverdue
+          };
+        }).sort((a, b) => {
+          if (a.isOverdue && !b.isOverdue) return -1;
+          if (!a.isOverdue && b.isOverdue) return 1;
+          if (a.isOverdue && b.isOverdue) return b.daysOverdue - a.daysOverdue;
+          return a.dueDate.localeCompare(b.dueDate);
+        })
+      });
     }
     if (req.method === "GET" && url.pathname === "/api/orders") {
       const ordersWithStock = db.orders.map(o => {

@@ -6,7 +6,7 @@
       "category": "纸张",
       "unit": "张",
       "stock": 50,
-      "reserved": 1,
+      "reserved": 2,
       "threshold": 10,
       "note": "四尺整纸规格 69x138cm"
     },
@@ -36,7 +36,7 @@
       "category": "墨料",
       "unit": "克",
       "stock": 500,
-      "reserved": 3,
+      "reserved": 6,
       "threshold": 100,
       "note": "松烟墨粉"
     },
@@ -56,7 +56,7 @@
       "category": "装裱轴头",
       "unit": "对",
       "stock": 30,
-      "reserved": 1,
+      "reserved": 2,
       "threshold": 5,
       "note": "实木轴头，四尺用"
     },
