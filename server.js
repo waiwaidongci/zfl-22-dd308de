@@ -905,6 +905,8 @@ function page() {
           <input id="cr-dueDate" type="date" disabled>
           <label><input type="checkbox" class="cr-field-toggle" data-field="price"> 价格（元）</label>
           <input id="cr-price" type="number" min="0" step="1" disabled>
+          <label><input type="checkbox" class="cr-field-toggle" data-field="note"> 备注</label>
+          <textarea id="cr-note" disabled></textarea>
         </div>
         <label style="margin-top:8px;">变更原因</label>
         <textarea id="cr-reason" placeholder="请填写变更原因，如：客户要求修改尺寸"></textarea>
@@ -1039,7 +1041,7 @@ function page() {
             stockHtml = '<div class="order-card-stock ok">✓ 材料库存充足</div>';
           }
         }
-        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div><div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+'<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
+        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div>'+(o.note?'<div style="font-size:12px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--bg);border-radius:4px;">📝 '+o.note+'</div>':'')+'<div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+'<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
       }).join("");
       document.querySelectorAll("[data-id]").forEach(sel => { sel.value = orders.find(o => o.id === sel.dataset.id).status; });
       document.querySelectorAll("[data-save]").forEach(btn => btn.onclick = async () => {
@@ -1420,8 +1422,8 @@ function page() {
         tipEl.style.display = "none";
       }
 
-      const fields = ["size", "paper", "inkPlan", "mounting", "inscription", "dueDate", "price"];
-      const restrictedFields = isPickup ? ["price"] : fields;
+      const fields = ["size", "paper", "inkPlan", "mounting", "inscription", "dueDate", "price", "note"];
+      const restrictedFields = isPickup ? ["price", "note"] : fields;
 
       fields.forEach(field => {
         const checkbox = document.querySelector('.cr-field-toggle[data-field="'+field+'"]');
@@ -1678,7 +1680,8 @@ function page() {
         + '<div class="row"><span class="label">纸张</span><span class="value">'+order.paper+'</span></div>'
         + '<div class="row"><span class="label">墨色方案</span><span class="value">'+(order.inkPlan||"-")+'</span></div>'
         + '<div class="row"><span class="label">装裱方式</span><span class="value">'+order.mounting+'</span></div>'
-        + '<div class="row"><span class="label">题字内容</span><span class="value">'+(order.inscription||"无")+'</span></div>';
+        + '<div class="row"><span class="label">题字内容</span><span class="value">'+(order.inscription||"无")+'</span></div>'
+        + '<div class="row"><span class="label">备注</span><span class="value">'+(order.note||"-")+'</span></div>';
       if (canChange) {
         html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">';
         if (pendingChanges.length > 0) {
@@ -3402,7 +3405,11 @@ const server = http.createServer(async (req, res) => {
       const oldValues = {};
       for (const [key, value] of Object.entries(cr.changes)) {
         oldValues[key] = order[key] || "";
-        order[key] = value;
+        if (key === "price") {
+          order[key] = Number(value) || 0;
+        } else {
+          order[key] = value;
+        }
       }
       const needMaterialRecalc = ["size", "paper", "inkPlan", "mounting"].some(k => k in cr.changes);
       if (needMaterialRecalc && order.materialUsage && order.status !== "已完成" && !order.materialDeducted) {
