@@ -906,7 +906,8 @@ function page() {
           for (const [matId, qty] of Object.entries(o.materialUsage)) {
             const mat = materials.find(m => m.id === matId);
             if (mat) {
-              const available = (mat.stock || 0) - (mat.reserved || 0);
+              const othersReserved = (mat.reserved || 0) - qty;
+              const available = (mat.stock || 0) - Math.max(0, othersReserved);
               if (available < qty) {
                 shortageItems.push(mat.name + "（需 " + qty + mat.unit + "，可用 " + available + mat.unit + "）");
               }
@@ -2411,7 +2412,8 @@ const server = http.createServer(async (req, res) => {
           for (const [matId, qty] of Object.entries(o.materialUsage)) {
             const mat = db.materials.find(m => m.id === matId);
             if (mat) {
-              const available = (mat.stock || 0) - (mat.reserved || 0);
+              const othersReserved = (mat.reserved || 0) - qty;
+              const available = (mat.stock || 0) - Math.max(0, othersReserved);
               if (available < qty) {
                 stockStatus = "shortage";
                 break;
@@ -2568,17 +2570,20 @@ const server = http.createServer(async (req, res) => {
       order.status = input.status;
       order.history.push({ at: new Date().toISOString(), stage: input.status, note: input.note || "" });
 
-      if (input.status === "已完成" && oldStatus !== "已完成" && order.materialUsage) {
+      if (input.status === "已完成" && oldStatus !== "已完成" && order.materialUsage && !order.materialDeducted) {
         for (const [matId, qty] of Object.entries(order.materialUsage)) {
           const mat = db.materials.find(m => m.id === matId);
           if (mat) {
             const beforeStock = mat.stock || 0;
             const beforeReserved = mat.reserved || 0;
+            const actualDeductReserved = Math.min(qty, beforeReserved);
             mat.stock = Math.max(0, beforeStock - qty);
-            mat.reserved = Math.max(0, beforeReserved - qty);
+            mat.reserved = Math.max(0, beforeReserved - actualDeductReserved);
             db.materialTransactions.push({
               id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               materialId: mat.id,
+              materialName: mat.name,
+              materialUnit: mat.unit,
               type: "出库",
               quantity: qty,
               before: beforeStock,
@@ -2589,9 +2594,10 @@ const server = http.createServer(async (req, res) => {
             });
           }
         }
+        order.materialDeducted = true;
       }
 
-      if (input.status !== "已完成" && oldStatus === "已完成" && order.materialUsage) {
+      if (input.status !== "已完成" && oldStatus === "已完成" && order.materialUsage && order.materialDeducted) {
         for (const [matId, qty] of Object.entries(order.materialUsage)) {
           const mat = db.materials.find(m => m.id === matId);
           if (mat) {
@@ -2601,6 +2607,8 @@ const server = http.createServer(async (req, res) => {
             db.materialTransactions.push({
               id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               materialId: mat.id,
+              materialName: mat.name,
+              materialUnit: mat.unit,
               type: "入库",
               quantity: qty,
               before: beforeStock,
@@ -2611,6 +2619,7 @@ const server = http.createServer(async (req, res) => {
             });
           }
         }
+        order.materialDeducted = false;
       }
 
       if (scheduleStages.includes(input.status)) {
