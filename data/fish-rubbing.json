@@ -1,0 +1,31 @@
+{
+  "orders": [
+    {
+      "id": "FT-2601",
+      "client": "沈钧",
+      "fishSpecies": "真鲷",
+      "size": "70x35cm",
+      "paper": "手工楮皮纸",
+      "inkPlan": "淡墨鱼身，朱砂题款",
+      "mounting": "立轴",
+      "inscription": "海上清风",
+      "owner": "阿青",
+      "price": 1800,
+      "paid": false,
+      "dueDate": "2026-06-24",
+      "status": "晾干中",
+      "history": [
+        {
+          "at": "2026-06-12T09:00:00.000Z",
+          "stage": "待拓印",
+          "note": "客户送鱼并确认尺寸"
+        },
+        {
+          "at": "2026-06-13T15:30:00.000Z",
+          "stage": "晾干中",
+          "note": "完成右侧直接拓印"
+        }
+      ]
+    }
+  ]
+}
