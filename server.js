@@ -9,6 +9,8 @@ const dbPath = join(__dirname, "data", "fish-rubbing.json");
 const port = Number(process.env.PORT || 3022);
 
 const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
+const scheduleStages = ["待拓印", "晾干中", "装裱中", "待取件"];
+const MAX_TASKS_PER_DAY = 5;
 const seed = {
   orders: [
     {
@@ -26,6 +28,10 @@ const seed = {
       payments: [],
       dueDate: "2026-06-24",
       status: "晾干中",
+      tasks: [
+        { id: "T-2601-1", stage: "待拓印", assignee: "阿青", date: "2026-06-13", note: "右侧直接拓印", completed: true, createdAt: "2026-06-12T09:00:00.000Z", updatedAt: "2026-06-13T15:30:00.000Z" },
+        { id: "T-2601-2", stage: "晾干中", assignee: "阿青", date: "2026-06-17", note: "自然晾干，注意湿度", completed: false, createdAt: "2026-06-13T15:30:00.000Z", updatedAt: "2026-06-13T15:30:00.000Z" }
+      ],
       history: [
         { at: "2026-06-12T09:00:00.000Z", stage: "待拓印", note: "客户送鱼并确认尺寸" },
         { at: "2026-06-13T15:30:00.000Z", stage: "晾干中", note: "完成右侧直接拓印" }
@@ -50,6 +56,12 @@ const seed = {
       dueDate: "2026-06-10",
       status: "已完成",
       archived: false,
+      tasks: [
+        { id: "T-2600-1", stage: "待拓印", assignee: "阿青", date: "2026-06-02", note: "浓墨拓印", completed: true, createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-03T14:00:00.000Z" },
+        { id: "T-2600-2", stage: "晾干中", assignee: "阿青", date: "2026-06-04", note: "晾干两天", completed: true, createdAt: "2026-06-03T14:00:00.000Z", updatedAt: "2026-06-06T10:00:00.000Z" },
+        { id: "T-2600-3", stage: "装裱中", assignee: "阿青", date: "2026-06-07", note: "镜片装裱", completed: true, createdAt: "2026-06-06T10:00:00.000Z", updatedAt: "2026-06-09T16:00:00.000Z" },
+        { id: "T-2600-4", stage: "待取件", assignee: "阿青", date: "2026-06-10", note: "通知客户取件", completed: true, createdAt: "2026-06-09T16:00:00.000Z", updatedAt: "2026-06-10T11:00:00.000Z" }
+      ],
       history: [
         { at: "2026-06-01T09:00:00.000Z", stage: "待拓印", note: "新委托接单" },
         { at: "2026-06-03T14:00:00.000Z", stage: "晾干中", note: "完成拓印" },
@@ -104,45 +116,98 @@ async function saveDb(db) {
 }
 
 async function migrateLegacyData(db) {
-  if (db._customerMigrated) return;
-  let changed = true;
+  let changed = false;
   if (!db.customers) { db.customers = []; changed = true; }
-  const nameToId = new Map(db.customers.map(c => [c.name, c.id]));
-  function ensureCustomer(name) {
-    if (!name) return null;
-    if (nameToId.has(name)) return nameToId.get(name);
-    const id = `C-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const customer = {
-      id,
-      name,
-      phone: "",
-      wechat: "",
-      address: "",
-      note: "",
-      createdAt: new Date().toISOString()
-    };
-    db.customers.push(customer);
-    nameToId.set(name, id);
-    return id;
-  }
-  if (Array.isArray(db.orders)) {
-    for (const order of db.orders) {
-      if (!order.customerId && order.client) {
-        order.customerId = ensureCustomer(order.client);
-        changed = true;
+  if (!db._customerMigrated) {
+    const nameToId = new Map(db.customers.map(c => [c.name, c.id]));
+    function ensureCustomer(name) {
+      if (!name) return null;
+      if (nameToId.has(name)) return nameToId.get(name);
+      const id = `C-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const customer = {
+        id,
+        name,
+        phone: "",
+        wechat: "",
+        address: "",
+        note: "",
+        createdAt: new Date().toISOString()
+      };
+      db.customers.push(customer);
+      nameToId.set(name, id);
+      return id;
+    }
+    if (Array.isArray(db.orders)) {
+      for (const order of db.orders) {
+        if (!order.customerId && order.client) {
+          order.customerId = ensureCustomer(order.client);
+          changed = true;
+        }
       }
     }
-  }
-  if (Array.isArray(db.works)) {
-    for (const work of db.works) {
-      if (!work.customerId && work.client) {
-        work.customerId = ensureCustomer(work.client);
-        changed = true;
+    if (Array.isArray(db.works)) {
+      for (const work of db.works) {
+        if (!work.customerId && work.client) {
+          work.customerId = ensureCustomer(work.client);
+          changed = true;
+        }
       }
     }
+    db._customerMigrated = true;
+    changed = true;
   }
-  db._customerMigrated = true;
-  await saveDb(db);
+  if (!db._tasksMigrated) {
+    if (Array.isArray(db.orders)) {
+      for (const order of db.orders) {
+        if (!order.tasks) {
+          order.tasks = generateInitialTasks(order);
+          changed = true;
+        }
+      }
+    }
+    db._tasksMigrated = true;
+    changed = true;
+  }
+  if (changed) {
+    await saveDb(db);
+  }
+}
+
+function generateInitialTasks(order) {
+  const tasks = [];
+  const history = order.history || [];
+  const stageSet = new Set(scheduleStages);
+  const stageHistory = {};
+  for (const h of history) {
+    if (stageSet.has(h.stage) && !stageHistory[h.stage]) {
+      stageHistory[h.stage] = h;
+    }
+  }
+  let taskIndex = 1;
+  const orderIdNum = order.id.replace(/\D/g, "");
+  for (const stage of scheduleStages) {
+    const stageIdx = stages.indexOf(stage);
+    const currentIdx = stages.indexOf(order.status);
+    const isPast = stageIdx < currentIdx;
+    const isCurrent = stage === order.status;
+    const isFuture = stageIdx > currentIdx;
+    if (order.status === "已完成" || isPast || isCurrent) {
+      const h = stageHistory[stage];
+      const taskDate = h ? h.at.slice(0, 10) : (order.dueDate || new Date().toISOString().slice(0, 10));
+      tasks.push({
+        id: `T-${orderIdNum}-${taskIndex}`,
+        stage,
+        assignee: order.owner || "未分配",
+        date: taskDate,
+        note: h ? h.note : "",
+        completed: isPast || order.status === "已完成",
+        createdAt: h ? h.at : new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      taskIndex++;
+    }
+  }
+  return tasks;
 }
 
 function enrichCustomer(customer, orders, works) {
@@ -318,7 +383,39 @@ function page() {
     .search-box { position:relative; }
     .search-box input { padding-left:34px; }
     .search-box::before { content:"🔍"; position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:14px; opacity:0.5; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1fr; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1fr; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } }
+    .schedule-toolbar { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
+    .schedule-date-nav { display:flex; gap:8px; align-items:center; }
+    .schedule-date-nav button { padding:7px 14px; font-size:13px; }
+    .schedule-date-nav input[type="date"] { padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+    .schedule-filters { display:flex; gap:12px; align-items:center; }
+    .schedule-filters select { min-width:140px; }
+    .schedule-toggle { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--muted); cursor:pointer; }
+    .schedule-toggle input { margin:0; }
+    .schedule-stats { margin-left:auto; display:flex; gap:16px; font-size:13px; color:var(--muted); }
+    .schedule-stats strong { color:var(--ink); font-size:16px; }
+    .schedule-warning { padding:12px 16px; background:#fff4e5; border:1px solid #f0c98a; color:#8a5a1e; border-radius:8px; margin-bottom:16px; font-size:14px; }
+    .schedule-board { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; min-height:400px; }
+    .schedule-column { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+    .schedule-column-header { display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:2px solid var(--line); }
+    .schedule-column-header h3 { margin:0; font-size:15px; }
+    .schedule-column-header .count { background:var(--bg); padding:2px 10px; border-radius:999px; font-size:12px; color:var(--muted); font-weight:700; }
+    .schedule-column.drag-over { background:#eef4f1; border-color:var(--accent); }
+    .schedule-task-list { display:flex; flex-direction:column; gap:8px; flex:1; min-height:60px; }
+    .schedule-task { background:#fff; border:1px solid var(--line); border-radius:6px; padding:10px; cursor:grab; transition:all 0.15s; position:relative; }
+    .schedule-task:hover { box-shadow:0 2px 8px rgba(0,0,0,0.08); transform:translateY(-1px); }
+    .schedule-task.dragging { opacity:0.5; cursor:grabbing; }
+    .schedule-task.completed { opacity:0.6; }
+    .schedule-task.completed .task-title { text-decoration:line-through; }
+    .task-title { font-weight:700; font-size:14px; margin-bottom:4px; }
+    .task-meta { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:2px; }
+    .task-assignee { display:inline-block; background:var(--bg); padding:1px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+    .task-order-id { font-size:11px; color:var(--muted); }
+    .task-actions { display:flex; gap:6px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); }
+    .task-actions button { flex:1; padding:5px 8px; font-size:12px; }
+    .task-actions button.secondary { background:var(--muted); }
+    .schedule-add-btn { width:100%; padding:8px; border:2px dashed var(--line); background:transparent; color:var(--muted); border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+    .schedule-add-btn:hover { border-color:var(--accent); color:var(--accent); background:#eef4f1; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } }
   </style>
 </head>
 <body>
@@ -326,6 +423,7 @@ function page() {
   <main>
     <div class="tabs">
       <div class="tab active" data-tab="orders">委托单管理</div>
+      <div class="tab" data-tab="schedule">工序排班</div>
       <div class="tab" data-tab="calendar">交付日历</div>
       <div class="tab" data-tab="works">作品档案</div>
       <div class="tab" data-tab="customers">客户档案</div>
@@ -367,6 +465,29 @@ function page() {
           <div class="grid" id="orders"></div>
         </section>
       </div>
+    </div>
+
+    <div class="tab-content" id="tab-schedule">
+      <div class="schedule-toolbar">
+        <div class="schedule-date-nav">
+          <button id="sch-prev-day">‹ 前一天</button>
+          <input type="date" id="sch-date">
+          <button id="sch-today">今天</button>
+          <button id="sch-next-day">后一天 ›</button>
+        </div>
+        <div class="schedule-filters">
+          <select id="sch-assignee-filter">
+            <option value="">全部负责人</option>
+          </select>
+          <label class="schedule-toggle">
+            <input type="checkbox" id="sch-show-completed" checked>
+            <span>显示已完成</span>
+          </label>
+        </div>
+        <div class="schedule-stats" id="sch-stats"></div>
+      </div>
+      <div class="schedule-warning" id="sch-warning" style="display:none;"></div>
+      <div class="schedule-board" id="sch-board"></div>
     </div>
 
     <div class="tab-content" id="tab-calendar">
@@ -471,16 +592,74 @@ function page() {
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="task-modal-overlay">
+    <div class="modal">
+      <h3 id="task-modal-title">编辑任务</h3>
+      <div class="modal-sub" id="task-modal-sub"></div>
+      <div class="modal-detail">
+        <div class="row"><span class="label">订单编号</span><span class="value" id="task-order-id"></span></div>
+        <div class="row"><span class="label">客户</span><span class="value" id="task-client"></span></div>
+      </div>
+      <div style="margin-top:14px;">
+        <label>阶段</label>
+        <select id="task-stage"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div><label>负责人</label><input id="task-assignee"></div>
+        <div><label>日期</label><input id="task-date" type="date"></div>
+      </div>
+      <div>
+        <label>备注</label>
+        <textarea id="task-note" placeholder="任务备注"></textarea>
+      </div>
+      <div>
+        <label>变更原因</label>
+        <input id="task-change-reason" placeholder="请输入变更原因，将记录到订单历史">
+      </div>
+      <div id="task-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div id="task-warning" style="color:#8a5a1e;background:#fff4e5;padding:8px 12px;border-radius:6px;font-size:13px;margin-top:8px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="task-close">取消</button>
+        <button id="task-save">保存</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="task-delete-modal">
+    <div class="modal">
+      <h3>删除任务</h3>
+      <div class="modal-sub">确定要删除此任务吗？</div>
+      <div>
+        <label>删除原因</label>
+        <input id="task-delete-reason" placeholder="请输入删除原因，将记录到订单历史">
+      </div>
+      <div id="task-delete-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="task-delete-cancel">取消</button>
+        <button id="task-delete-confirm" style="background:#9b2c2c;">确认删除</button>
+      </div>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
+    const scheduleStages = ${JSON.stringify(scheduleStages)};
+    const MAX_TASKS_PER_DAY = ${MAX_TASKS_PER_DAY};
     let orders = [];
     let works = [];
     let customers = [];
+    let assignees = [];
+    let scheduleTasks = [];
     let currentTab = "orders";
     let calendarOrders = [];
     let currentYear = new Date().getFullYear();
     let currentMonth = new Date().getMonth() + 1;
     let editingCustomerId = null;
+    let currentScheduleDate = new Date().toISOString().slice(0, 10);
+    let scheduleAssigneeFilter = "";
+    let showCompletedTasks = true;
+    let editingTask = null;
+    let deletingTaskId = null;
+    let deletingTaskOrderId = null;
+    let draggedTask = null;
     let customerDetailTab = "orders";
     let customerSearchKeyword = "";
     let afterCustomerCreated = null;
@@ -896,8 +1075,304 @@ function page() {
       });
     }
 
+    function renderSchedule() {
+      const dateInput = document.querySelector("#sch-date");
+      const assigneeFilter = document.querySelector("#sch-assignee-filter");
+      const showCompleted = document.querySelector("#sch-show-completed");
+      const statsEl = document.querySelector("#sch-stats");
+      const warningEl = document.querySelector("#sch-warning");
+      const boardEl = document.querySelector("#sch-board");
+
+      if (dateInput) dateInput.value = currentScheduleDate;
+      if (assigneeFilter) {
+        const prevVal = assigneeFilter.value;
+        assigneeFilter.innerHTML = '<option value="">全部负责人</option>'
+          + assignees.map(a => '<option value="'+a+'">'+a+'</option>').join("");
+        assigneeFilter.value = prevVal || scheduleAssigneeFilter;
+      }
+      if (showCompleted) showCompleted.checked = showCompletedTasks;
+
+      const filteredTasks = scheduleTasks.filter(t => {
+        if (!showCompletedTasks && t.completed) return false;
+        return true;
+      });
+
+      const totalTasks = filteredTasks.length;
+      const completedTasks = filteredTasks.filter(t => t.completed).length;
+      const assigneeCount = [...new Set(filteredTasks.map(t => t.assignee))].length;
+
+      if (statsEl) {
+        statsEl.innerHTML = '<div>总任务 <strong>'+totalTasks+'</strong></div>'
+          + '<div>已完成 <strong>'+completedTasks+'</strong></div>'
+          + '<div>参与负责人 <strong>'+assigneeCount+'</strong></div>';
+      }
+
+      const workloadByAssignee = {};
+      filteredTasks.filter(t => !t.completed).forEach(t => {
+        if (!workloadByAssignee[t.assignee]) workloadByAssignee[t.assignee] = 0;
+        workloadByAssignee[t.assignee]++;
+      });
+      const overloaded = Object.entries(workloadByAssignee).filter(([_, c]) => c >= MAX_TASKS_PER_DAY);
+      if (warningEl) {
+        if (overloaded.length > 0) {
+          warningEl.style.display = "block";
+          warningEl.innerHTML = "⚠️ 工作量提醒：" + overloaded.map(([name, count]) => name + "（" + count + "项）").join("、") + " 当日任务较多，建议分散安排";
+        } else {
+          warningEl.style.display = "none";
+        }
+      }
+
+      if (boardEl) {
+        let html = "";
+        for (const stage of scheduleStages) {
+          const stageTasks = filteredTasks.filter(t => t.stage === stage);
+          html += '<div class="schedule-column" data-stage="'+stage+'">'
+            + '<div class="schedule-column-header">'
+            + '<h3>'+stage+'</h3>'
+            + '<span class="count">'+stageTasks.length+'</span>'
+            + '</div>'
+            + '<div class="schedule-task-list" data-stage="'+stage+'">';
+          stageTasks.forEach(task => {
+            html += renderTaskCard(task);
+          });
+          html += '</div>'
+            + '<button class="schedule-add-btn" data-add-stage="'+stage+'">+ 新增任务</button>'
+            + '</div>';
+        }
+        boardEl.innerHTML = html;
+
+        boardEl.querySelectorAll(".schedule-task").forEach(el => {
+          el.addEventListener("dragstart", handleDragStart);
+          el.addEventListener("dragend", handleDragEnd);
+        });
+
+        boardEl.querySelectorAll(".schedule-column").forEach(el => {
+          el.addEventListener("dragover", handleDragOver);
+          el.addEventListener("dragleave", handleDragLeave);
+          el.addEventListener("drop", handleDrop);
+        });
+
+        boardEl.querySelectorAll(".schedule-task-list").forEach(el => {
+          el.addEventListener("dragover", handleDragOver);
+          el.addEventListener("dragleave", handleDragLeave);
+          el.addEventListener("drop", handleDrop);
+        });
+
+        boardEl.querySelectorAll("[data-edit-task]").forEach(btn => {
+          btn.onclick = () => openTaskModal(btn.dataset.editTask, btn.dataset.orderId);
+        });
+
+        boardEl.querySelectorAll("[data-toggle-task]").forEach(btn => {
+          btn.onclick = () => toggleTaskComplete(btn.dataset.toggleTask, btn.dataset.orderId);
+        });
+
+        boardEl.querySelectorAll("[data-delete-task]").forEach(btn => {
+          btn.onclick = () => openDeleteModal(btn.dataset.deleteTask, btn.dataset.orderId);
+        });
+
+        boardEl.querySelectorAll("[data-add-stage]").forEach(btn => {
+          btn.onclick = () => openNewTaskModal(btn.dataset.addStage);
+        });
+      }
+    }
+
+    function renderTaskCard(task) {
+      const cls = task.completed ? "schedule-task completed" : "schedule-task";
+      const toggleText = task.completed ? "恢复" : "完成";
+      const toggleCls = task.completed ? "secondary" : "";
+      return '<div class="'+cls+'" draggable="true" data-task-id="'+task.id+'" data-order-id="'+task.orderId+'" data-stage="'+task.stage+'">'
+        + '<div class="task-title">'+task.client+' · '+task.fishSpecies+'</div>'
+        + '<div class="task-meta">'
+        + '<span class="task-assignee">'+task.assignee+'</span>'
+        + '<span class="task-order-id">'+task.orderId+'</span>'
+        + (task.note ? '<span>'+task.note+'</span>' : '')
+        + '</div>'
+        + '<div class="task-actions">'
+        + '<button class="'+toggleCls+'" data-toggle-task="'+task.id+'" data-order-id="'+task.orderId+'">'+toggleText+'</button>'
+        + '<button class="secondary" data-edit-task="'+task.id+'" data-order-id="'+task.orderId+'">编辑</button>'
+        + '<button class="secondary" data-delete-task="'+task.id+'" data-order-id="'+task.orderId+'">删除</button>'
+        + '</div>'
+        + '</div>';
+    }
+
+    function handleDragStart(e) {
+      draggedTask = {
+        id: e.target.dataset.taskId,
+        orderId: e.target.dataset.orderId,
+        stage: e.target.dataset.stage
+      };
+      e.target.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    }
+
+    function handleDragEnd(e) {
+      e.target.classList.remove("dragging");
+      document.querySelectorAll(".schedule-column").forEach(el => {
+        el.classList.remove("drag-over");
+      });
+      draggedTask = null;
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const column = e.target.closest(".schedule-column");
+      if (column) column.classList.add("drag-over");
+    }
+
+    function handleDragLeave(e) {
+      const column = e.target.closest(".schedule-column");
+      if (column && !column.contains(e.relatedTarget)) {
+        column.classList.remove("drag-over");
+      }
+    }
+
+    async function handleDrop(e) {
+      e.preventDefault();
+      const column = e.target.closest(".schedule-column");
+      if (column) column.classList.remove("drag-over");
+      if (!draggedTask || !column) return;
+
+      const targetStage = column.dataset.stage;
+      if (targetStage === draggedTask.stage) return;
+
+      const reason = prompt("请输入变更原因（将记录到订单历史）：");
+      if (reason === null) return;
+      if (!reason.trim()) {
+        alert("请输入变更原因");
+        return;
+      }
+
+      try {
+        await api("/api/orders/"+draggedTask.orderId+"/tasks/"+draggedTask.id, {
+          method: "PUT",
+          body: JSON.stringify({
+            stage: targetStage,
+            changeReason: reason.trim()
+          })
+        });
+        scheduleTasks = await loadScheduleTasks();
+        renderSchedule();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function openTaskModal(taskId, orderId) {
+      const task = scheduleTasks.find(t => t.id === taskId && t.orderId === orderId);
+      if (!task) return;
+      editingTask = { ...task };
+      const overlay = document.querySelector("#task-modal-overlay");
+      document.querySelector("#task-modal-title").textContent = "编辑任务";
+      document.querySelector("#task-modal-sub").textContent = task.id;
+      document.querySelector("#task-order-id").textContent = task.orderId;
+      document.querySelector("#task-client").textContent = task.client + " · " + task.fishSpecies;
+
+      const stageSelect = document.querySelector("#task-stage");
+      stageSelect.innerHTML = scheduleStages.map(s => '<option value="'+s+'">'+s+'</option>').join("");
+      stageSelect.value = task.stage;
+
+      document.querySelector("#task-assignee").value = task.assignee;
+      document.querySelector("#task-date").value = task.date;
+      document.querySelector("#task-note").value = task.note || "";
+      document.querySelector("#task-change-reason").value = "";
+      document.querySelector("#task-error").style.display = "none";
+      document.querySelector("#task-warning").style.display = "none";
+
+      overlay.classList.add("active");
+      scheduleWorkloadCheck();
+    }
+
+    function openNewTaskModal(stage) {
+      editingTask = { stage, isNew: true };
+      const overlay = document.querySelector("#task-modal-overlay");
+      document.querySelector("#task-modal-title").textContent = "新增任务";
+      document.querySelector("#task-modal-sub").textContent = stage;
+      document.querySelector("#task-order-id").textContent = "—";
+      document.querySelector("#task-client").textContent = "—";
+
+      const stageSelect = document.querySelector("#task-stage");
+      stageSelect.innerHTML = scheduleStages.map(s => '<option value="'+s+'">'+s+'</option>').join("");
+      stageSelect.value = stage;
+
+      document.querySelector("#task-assignee").value = scheduleAssigneeFilter || (assignees[0] || "");
+      document.querySelector("#task-date").value = currentScheduleDate;
+      document.querySelector("#task-note").value = "";
+      document.querySelector("#task-change-reason").value = "";
+      document.querySelector("#task-error").style.display = "none";
+      document.querySelector("#task-warning").style.display = "none";
+
+      overlay.classList.add("active");
+      scheduleWorkloadCheck();
+    }
+
+    async function checkWorkload(assignee, date, excludeTaskId) {
+      try {
+        const result = await api("/api/schedule/check-workload", {
+          method: "POST",
+          body: JSON.stringify({ assignee, date, excludeTaskId })
+        });
+        return result;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function toggleTaskComplete(taskId, orderId) {
+      const task = scheduleTasks.find(t => t.id === taskId && t.orderId === orderId);
+      if (!task) return;
+      const reason = task.completed ? "恢复任务" : "标记任务完成";
+      try {
+        await api("/api/orders/"+orderId+"/tasks/"+taskId, {
+          method: "PUT",
+          body: JSON.stringify({
+            completed: !task.completed,
+            changeReason: reason
+          })
+        });
+        scheduleTasks = await loadScheduleTasks();
+        renderSchedule();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function openDeleteModal(taskId, orderId) {
+      deletingTaskId = taskId;
+      deletingTaskOrderId = orderId;
+      document.querySelector("#task-delete-reason").value = "";
+      document.querySelector("#task-delete-error").style.display = "none";
+      document.querySelector("#task-delete-modal").classList.add("active");
+    }
+
+    async function deleteTask() {
+      if (!deletingTaskId || !deletingTaskOrderId) return;
+      const reason = document.querySelector("#task-delete-reason").value.trim();
+      const errorEl = document.querySelector("#task-delete-error");
+      if (!reason) {
+        errorEl.textContent = "请输入删除原因";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        await api("/api/orders/"+deletingTaskOrderId+"/tasks/"+deletingTaskId, {
+          method: "DELETE",
+          body: JSON.stringify({ changeReason: reason })
+        });
+        document.querySelector("#task-delete-modal").classList.remove("active");
+        deletingTaskId = null;
+        deletingTaskOrderId = null;
+        scheduleTasks = await loadScheduleTasks();
+        renderSchedule();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = "block";
+      }
+    }
+
     function render() {
       if (currentTab === "orders") renderOrders();
+      else if (currentTab === "schedule") renderSchedule();
       else if (currentTab === "calendar") renderCalendar();
       else if (currentTab === "works") renderWorks();
       else if (currentTab === "customers") renderCustomers();
@@ -907,8 +1382,12 @@ function page() {
       orders = await api("/api/orders");
       works = await api("/api/works");
       customers = await api("/api/customers");
+      assignees = await api("/api/assignees");
       if (currentTab === "calendar") {
         calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
+      }
+      if (currentTab === "schedule") {
+        scheduleTasks = await loadScheduleTasks();
       }
       render();
     }
@@ -916,6 +1395,14 @@ function page() {
     async function loadCalendar() {
       calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
       renderCalendar();
+    }
+
+    async function loadScheduleTasks() {
+      let url = "/api/schedule?date=" + currentScheduleDate;
+      if (scheduleAssigneeFilter) {
+        url += "&assignee=" + encodeURIComponent(scheduleAssigneeFilter);
+      }
+      return await api(url);
     }
 
     document.querySelectorAll(".tab").forEach(tab => tab.onclick = async () => {
@@ -926,6 +1413,9 @@ function page() {
       document.querySelector("#tab-"+currentTab).classList.add("active");
       if (currentTab === "calendar") {
         await loadCalendar();
+      } else if (currentTab === "schedule") {
+        scheduleTasks = await loadScheduleTasks();
+        render();
       } else {
         render();
       }
@@ -1174,6 +1664,144 @@ function page() {
       }
     };
 
+    document.querySelector("#sch-prev-day")?.addEventListener("click", () => {
+      const d = new Date(currentScheduleDate);
+      d.setDate(d.getDate() - 1);
+      currentScheduleDate = d.toISOString().slice(0, 10);
+      loadScheduleAndRender();
+    });
+    document.querySelector("#sch-next-day")?.addEventListener("click", () => {
+      const d = new Date(currentScheduleDate);
+      d.setDate(d.getDate() + 1);
+      currentScheduleDate = d.toISOString().slice(0, 10);
+      loadScheduleAndRender();
+    });
+    document.querySelector("#sch-today")?.addEventListener("click", () => {
+      currentScheduleDate = new Date().toISOString().slice(0, 10);
+      loadScheduleAndRender();
+    });
+    document.querySelector("#sch-date")?.addEventListener("change", (e) => {
+      if (e.target.value) {
+        currentScheduleDate = e.target.value;
+        loadScheduleAndRender();
+      }
+    });
+    document.querySelector("#sch-assignee-filter")?.addEventListener("change", (e) => {
+      scheduleAssigneeFilter = e.target.value;
+      loadScheduleAndRender();
+    });
+    document.querySelector("#sch-show-completed")?.addEventListener("change", (e) => {
+      showCompletedTasks = e.target.checked;
+      renderSchedule();
+    });
+
+    async function loadScheduleAndRender() {
+      scheduleTasks = await loadScheduleTasks();
+      renderSchedule();
+    }
+
+    document.querySelector("#task-close")?.addEventListener("click", () => {
+      document.querySelector("#task-modal-overlay").classList.remove("active");
+      editingTask = null;
+    });
+    document.querySelector("#task-modal-overlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "task-modal-overlay") {
+        document.querySelector("#task-modal-overlay").classList.remove("active");
+        editingTask = null;
+      }
+    });
+
+    let taskWorkloadCheckTimer = null;
+    function scheduleWorkloadCheck() {
+      const assignee = document.querySelector("#task-assignee")?.value.trim();
+      const date = document.querySelector("#task-date")?.value;
+      const warningEl = document.querySelector("#task-warning");
+      if (!assignee || !date || !editingTask) {
+        if (warningEl) warningEl.style.display = "none";
+        return;
+      }
+      const excludeId = editingTask.isNew ? null : editingTask.id;
+      clearTimeout(taskWorkloadCheckTimer);
+      taskWorkloadCheckTimer = setTimeout(async () => {
+        const result = await checkWorkload(assignee, date, excludeId);
+        if (result && result.isOverloaded) {
+          warningEl.textContent = "⚠️ " + result.warning;
+          warningEl.style.display = "block";
+        } else {
+          warningEl.style.display = "none";
+        }
+      }, 300);
+    }
+
+    document.querySelector("#task-assignee")?.addEventListener("input", scheduleWorkloadCheck);
+    document.querySelector("#task-date")?.addEventListener("change", scheduleWorkloadCheck);
+
+    document.querySelector("#task-save")?.addEventListener("click", async () => {
+      if (!editingTask) return;
+      const stage = document.querySelector("#task-stage").value;
+      const assignee = document.querySelector("#task-assignee").value.trim();
+      const date = document.querySelector("#task-date").value;
+      const note = document.querySelector("#task-note").value.trim();
+      const changeReason = document.querySelector("#task-change-reason").value.trim();
+      const errorEl = document.querySelector("#task-error");
+
+      if (!assignee) {
+        errorEl.textContent = "请输入负责人";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!date) {
+        errorEl.textContent = "请选择日期";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!changeReason) {
+        errorEl.textContent = "请输入变更原因";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      try {
+        if (editingTask.isNew) {
+          alert("新增任务需要选择订单，此功能暂未实现，请在委托单管理中创建订单后自动生成任务。");
+          return;
+        } else {
+          await api("/api/orders/"+editingTask.orderId+"/tasks/"+editingTask.id, {
+            method: "PUT",
+            body: JSON.stringify({
+              stage,
+              assignee,
+              date,
+              note,
+              changeReason
+            })
+          });
+        }
+        document.querySelector("#task-modal-overlay").classList.remove("active");
+        editingTask = null;
+        scheduleTasks = await loadScheduleTasks();
+        assignees = await api("/api/assignees");
+        renderSchedule();
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    });
+
+    document.querySelector("#task-delete-cancel")?.addEventListener("click", () => {
+      document.querySelector("#task-delete-modal").classList.remove("active");
+      deletingTaskId = null;
+      deletingTaskOrderId = null;
+    });
+    document.querySelector("#task-delete-modal")?.addEventListener("click", (e) => {
+      if (e.target.id === "task-delete-modal") {
+        document.querySelector("#task-delete-modal").classList.remove("active");
+        deletingTaskId = null;
+        deletingTaskOrderId = null;
+      }
+    });
+    document.querySelector("#task-delete-confirm")?.addEventListener("click", deleteTask);
+
     load();
   </script>
 </body>
@@ -1189,6 +1817,71 @@ const server = http.createServer(async (req, res) => {
       return res.end(page());
     }
     if (req.method === "GET" && url.pathname === "/api/orders") return sendJson(res, 200, db.orders);
+    if (req.method === "GET" && url.pathname === "/api/assignees") {
+      const assignees = new Set();
+      db.orders.forEach(o => {
+        if (o.owner) assignees.add(o.owner);
+        (o.tasks || []).forEach(t => { if (t.assignee) assignees.add(t.assignee); });
+      });
+      return sendJson(res, 200, [...assignees]);
+    }
+    if (req.method === "GET" && url.pathname === "/api/schedule") {
+      const date = url.searchParams.get("date");
+      const startDate = url.searchParams.get("start");
+      const endDate = url.searchParams.get("end");
+      const assignee = url.searchParams.get("assignee");
+      const allTasks = [];
+      db.orders.forEach(order => {
+        (order.tasks || []).forEach(task => {
+          allTasks.push({
+            ...task,
+            orderId: order.id,
+            client: order.client,
+            fishSpecies: order.fishSpecies,
+            size: order.size,
+            orderStatus: order.status,
+            dueDate: order.dueDate
+          });
+        });
+      });
+      let filtered = allTasks;
+      if (date) {
+        filtered = filtered.filter(t => t.date === date);
+      } else if (startDate && endDate) {
+        filtered = filtered.filter(t => t.date >= startDate && t.date <= endDate);
+      }
+      if (assignee) {
+        filtered = filtered.filter(t => t.assignee === assignee);
+      }
+      filtered.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return scheduleStages.indexOf(a.stage) - scheduleStages.indexOf(b.stage);
+      });
+      return sendJson(res, 200, filtered);
+    }
+    if (req.method === "POST" && url.pathname === "/api/schedule/check-workload") {
+      const input = await body(req);
+      const { assignee, date, excludeTaskId } = input;
+      if (!assignee || !date) return sendJson(res, 400, { error: "assignee_and_date_required" });
+      let count = 0;
+      db.orders.forEach(order => {
+        (order.tasks || []).forEach(task => {
+          if (task.assignee === assignee && task.date === date && !task.completed) {
+            if (!excludeTaskId || task.id !== excludeTaskId) {
+              count++;
+            }
+          }
+        });
+      });
+      return sendJson(res, 200, {
+        assignee,
+        date,
+        count,
+        max: MAX_TASKS_PER_DAY,
+        isOverloaded: count >= MAX_TASKS_PER_DAY,
+        warning: count >= MAX_TASKS_PER_DAY ? `${assignee} 在 ${date} 已有 ${count} 个未完成任务，建议分散安排` : null
+      });
+    }
     if (req.method === "GET" && url.pathname === "/api/orders/calendar") {
       const year = Number(url.searchParams.get("year"));
       const month = Number(url.searchParams.get("month"));
@@ -1222,8 +1915,21 @@ const server = http.createServer(async (req, res) => {
         const cust = db.customers.find(c => c.id === customerId);
         if (cust) clientName = cust.name;
       }
+      const orderId = `FT-${Date.now()}`;
+      const initialTasks = [
+        {
+          id: `T-${Date.now()}-1`,
+          stage: "待拓印",
+          assignee: input.owner || "未分配",
+          date: new Date().toISOString().slice(0, 10),
+          note: "新委托接单",
+          completed: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      ];
       const order = {
-        id: `FT-${Date.now()}`,
+        id: orderId,
         ...input,
         customerId,
         client: clientName || input.client,
@@ -1231,6 +1937,7 @@ const server = http.createServer(async (req, res) => {
         paid: false,
         payments: [],
         status: "待拓印",
+        tasks: initialTasks,
         history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }]
       };
       delete order.newCustomer;
@@ -1243,10 +1950,133 @@ const server = http.createServer(async (req, res) => {
       const order = db.orders.find(item => item.id === stageMatch[1]);
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       const input = await body(req);
+      const oldStatus = order.status;
       order.status = input.status;
       order.history.push({ at: new Date().toISOString(), stage: input.status, note: input.note || "" });
+      if (scheduleStages.includes(input.status)) {
+        if (!order.tasks) order.tasks = [];
+        const existingTask = order.tasks.find(t => t.stage === input.status);
+        if (!existingTask) {
+          const taskId = `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          order.tasks.push({
+            id: taskId,
+            stage: input.status,
+            assignee: order.owner || "未分配",
+            date: new Date().toISOString().slice(0, 10),
+            note: input.note || "",
+            completed: false,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
       await saveDb(db);
       return sendJson(res, 200, order);
+    }
+    const tasksMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/tasks$/);
+    if (tasksMatch) {
+      const order = db.orders.find(item => item.id === tasksMatch[1]);
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      if (!order.tasks) order.tasks = [];
+      if (req.method === "GET") {
+        return sendJson(res, 200, order.tasks);
+      }
+      if (req.method === "POST") {
+        const input = await body(req);
+        if (!input.stage || !scheduleStages.includes(input.stage)) {
+          return sendJson(res, 400, { error: "无效的阶段" });
+        }
+        if (!input.assignee) {
+          return sendJson(res, 400, { error: "请指定负责人" });
+        }
+        if (!input.date) {
+          return sendJson(res, 400, { error: "请指定日期" });
+        }
+        const taskId = `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const task = {
+          id: taskId,
+          stage: input.stage,
+          assignee: input.assignee,
+          date: input.date,
+          note: input.note || "",
+          completed: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        order.tasks.push(task);
+        if (input.changeReason) {
+          order.history.push({
+            at: new Date().toISOString(),
+            stage: input.stage,
+            note: `[排班新增] ${input.changeReason} - 分配给${input.assignee}，日期${input.date}`
+          });
+        }
+        await saveDb(db);
+        return sendJson(res, 201, task);
+      }
+    }
+    const taskMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/tasks\/([^/]+)$/);
+    if (taskMatch) {
+      const order = db.orders.find(item => item.id === taskMatch[1]);
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      if (!order.tasks) order.tasks = [];
+      const task = order.tasks.find(t => t.id === taskMatch[2]);
+      if (!task) return sendJson(res, 404, { error: "task_not_found" });
+      if (req.method === "GET") {
+        return sendJson(res, 200, task);
+      }
+      if (req.method === "PUT") {
+        const input = await body(req);
+        const oldDate = task.date;
+        const oldAssignee = task.assignee;
+        const oldStage = task.stage;
+        const changes = [];
+        if (input.stage !== undefined && input.stage !== task.stage) {
+          if (!scheduleStages.includes(input.stage)) {
+            return sendJson(res, 400, { error: "无效的阶段" });
+          }
+          changes.push(`阶段：${oldStage} → ${input.stage}`);
+          task.stage = input.stage;
+        }
+        if (input.assignee !== undefined && input.assignee !== task.assignee) {
+          changes.push(`负责人：${oldAssignee} → ${input.assignee}`);
+          task.assignee = input.assignee;
+        }
+        if (input.date !== undefined && input.date !== task.date) {
+          changes.push(`日期：${oldDate} → ${input.date}`);
+          task.date = input.date;
+        }
+        if (input.note !== undefined) {
+          task.note = input.note;
+        }
+        if (input.completed !== undefined) {
+          task.completed = input.completed;
+          changes.push(input.completed ? "标记完成" : "标记未完成");
+        }
+        task.updatedAt = new Date().toISOString();
+        if (changes.length > 0 && input.changeReason) {
+          order.history.push({
+            at: new Date().toISOString(),
+            stage: task.stage,
+            note: `[排班变更] ${input.changeReason} - ${changes.join("；")}`
+          });
+        }
+        await saveDb(db);
+        return sendJson(res, 200, task);
+      }
+      if (req.method === "DELETE") {
+        const input = await body(req);
+        order.tasks = order.tasks.filter(t => t.id !== task.id);
+        if (input && input.changeReason) {
+          order.history.push({
+            at: new Date().toISOString(),
+            stage: task.stage,
+            note: `[排班删除] ${input.changeReason} - ${task.stage}任务，原负责人${task.assignee}，原日期${task.date}`
+          });
+        }
+        await saveDb(db);
+        return sendJson(res, 200, { ok: true });
+      }
     }
     if (req.method === "GET" && url.pathname === "/api/works") return sendJson(res, 200, db.works || []);
     const paymentsMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/payments$/);
