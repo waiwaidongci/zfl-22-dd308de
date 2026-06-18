@@ -1228,7 +1228,8 @@ function page() {
         }
         const branchName = branches.find(b => b.id === (o.branchId || DEFAULT_BRANCH_ID))?.name || "未知分店";
         const branchLabel = currentBranchId === "__all__" ? '<span class="meta" style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:3px;">🏢 ' + branchName + '</span>' : "";
-        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div>'+branchLabel+'<div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div>'+(o.note?'<div style="font-size:12px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--bg);border-radius:4px;">📝 '+o.note+'</div>':'')+'<div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+'<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
+        const stageActions = currentBranchId === "__all__" ? '' : '<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div>';
+        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div>'+branchLabel+'<div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div>'+(o.note?'<div style="font-size:12px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--bg);border-radius:4px;">📝 '+o.note+'</div>':'')+'<div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+stageActions+'<div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
       }).join("");
       document.querySelectorAll("[data-id]").forEach(sel => { sel.value = orders.find(o => o.id === sel.dataset.id).status; });
       document.querySelectorAll("[data-save]").forEach(btn => btn.onclick = async () => {
@@ -1311,6 +1312,7 @@ function page() {
       const list = keyword
         ? customers.filter(c => c.name.includes(keyword) || (c.phone || "").includes(keyword) || (c.wechat || "").includes(keyword))
         : customers;
+      const isAllView = currentBranchId === "__all__";
       if (list.length === 0) {
         gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无客户数据</div>';
       } else {
@@ -1322,6 +1324,9 @@ function page() {
           const prefs = [];
           if (c.preferredPaper) prefs.push('<span class="pill">📄 '+c.preferredPaper+'</span>');
           if (c.preferredMounting) prefs.push('<span class="pill">🖼️ '+c.preferredMounting+'</span>');
+          const actionsHtml = isAllView
+            ? '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button></div>'
+            : '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button><button class="secondary" data-edit-customer="'+c.id+'">编辑</button></div>';
           return '<article class="card customer-card" data-customer-id="'+c.id+'">'
             + '<div class="row"><h3 class="customer-name">'+c.name+'</h3><span class="customer-id">'+c.id+'</span></div>'
             + '<div class="customer-contact">'+(contact.length ? contact.join('<br>') : '<span style="color:var(--muted);">未填写联系方式</span>')+'</div>'
@@ -1331,10 +1336,7 @@ function page() {
             + '<div><strong>'+(c.workCount||0)+'</strong>作品</div>'
             + '<div><strong>¥'+(c.totalSpent||0)+'</strong>累计</div>'
             + '</div>'
-            + '<div class="row" style="margin-top:10px;">'
-            + '<button data-view-customer="'+c.id+'">查看详情</button>'
-            + '<button class="secondary" data-edit-customer="'+c.id+'">编辑</button>'
-            + '</div>'
+            + actionsHtml
             + '</article>';
         }).join("");
       }
@@ -1505,12 +1507,17 @@ function page() {
         + '<div class="stat stat-total" style="grid-column:span 3;"><span>库存总览</span><strong>共 '+totalTypes+' 种材料</strong></div>';
 
       const filtered = materialCategoryFilter ? materials.filter(m => m.category === materialCategoryFilter) : materials;
+      const isAllView = currentBranchId === "__all__";
       if (filtered.length === 0) {
         gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无材料数据</div>';
       } else {
         gridEl.innerHTML = filtered.map(m => {
           const available = (m.stock || 0) - (m.reserved || 0);
           const warnCls = m.isLow ? 'stock-warn' : 'stock-ok';
+          const actionsHtml = isAllView ? '' : '<div class="stock-row">'
+            + '<button data-stock-in="'+m.id+'">入库</button>'
+            + '<button class="secondary" data-edit-material="'+m.id+'">编辑</button>'
+            + '</div>';
           return '<article class="card stock-card" data-material-id="'+m.id+'">'
             + '<div class="row"><h3>'+m.name+'</h3><span class="pill">'+m.category+'</span></div>'
             + (m.note ? '<div class="meta">'+m.note+'</div>' : '')
@@ -1521,10 +1528,7 @@ function page() {
             + '<div><span class="label">预警阈值</span><span class="value">'+(m.threshold||0)+' '+m.unit+'</span></div>'
             + '</div>'
             + (m.isLow ? '<div class="order-card-stock warn">⚠️ 库存不足，建议及时补货</div>' : '')
-            + '<div class="stock-row">'
-            + '<button data-stock-in="'+m.id+'">入库</button>'
-            + '<button class="secondary" data-edit-material="'+m.id+'">编辑</button>'
-            + '</div>'
+            + actionsHtml
             + '</article>';
         }).join("");
       }
@@ -1905,7 +1909,7 @@ function page() {
       diffHtml += '</div>';
       diffEl.innerHTML = diffHtml;
 
-      if (cr.status === "pending" && order && order.status !== "已完成") {
+      if (cr.status === "pending" && order && order.status !== "已完成" && currentBranchId !== "__all__") {
         actionsEl.style.display = "grid";
       } else {
         actionsEl.style.display = "none";
@@ -2228,6 +2232,7 @@ function page() {
       }
 
       if (boardEl) {
+        const isAllView = currentBranchId === "__all__";
         let html = "";
         for (const stage of scheduleStages) {
           const stageTasks = filteredTasks.filter(t => t.stage === stage);
@@ -2241,7 +2246,7 @@ function page() {
             html += renderTaskCard(task);
           });
           html += '</div>'
-            + '<button class="schedule-add-btn" data-add-stage="'+stage+'">+ 新增任务</button>'
+            + (isAllView ? '' : '<button class="schedule-add-btn" data-add-stage="'+stage+'">+ 新增任务</button>')
             + '</div>';
         }
         boardEl.innerHTML = html;
@@ -2285,18 +2290,21 @@ function page() {
       const cls = task.completed ? "schedule-task completed" : "schedule-task";
       const toggleText = task.completed ? "恢复" : "完成";
       const toggleCls = task.completed ? "secondary" : "";
-      return '<div class="'+cls+'" draggable="true" data-task-id="'+task.id+'" data-order-id="'+task.orderId+'" data-stage="'+task.stage+'">'
-        + '<div class="task-title">'+task.client+' · '+task.fishSpecies+'</div>'
+      const isAllView = currentBranchId === "__all__";
+      const branchLabel = isAllView ? '<span class="task-branch" style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:2px;color:var(--muted);">' + (branches.find(b => b.id === (task.branchId || DEFAULT_BRANCH_ID))?.name || "未知分店") + '</span>' : '';
+      const actions = isAllView ? '' : '<div class="task-actions">'
+        + '<button class="'+toggleCls+'" data-toggle-task="'+task.id+'" data-order-id="'+task.orderId+'">'+toggleText+'</button>'
+        + '<button class="secondary" data-edit-task="'+task.id+'" data-order-id="'+task.orderId+'">编辑</button>'
+        + '<button class="secondary" data-delete-task="'+task.id+'" data-order-id="'+task.orderId+'">删除</button>'
+        + '</div>';
+      return '<div class="'+cls+'" draggable="'+!isAllView+'" data-task-id="'+task.id+'" data-order-id="'+task.orderId+'" data-stage="'+task.stage+'">'
+        + '<div class="task-title">'+task.client+' · '+task.fishSpecies+' '+branchLabel+'</div>'
         + '<div class="task-meta">'
         + '<span class="task-assignee">'+task.assignee+'</span>'
         + '<span class="task-order-id">'+task.orderId+'</span>'
         + (task.note ? '<span>'+task.note+'</span>' : '')
         + '</div>'
-        + '<div class="task-actions">'
-        + '<button class="'+toggleCls+'" data-toggle-task="'+task.id+'" data-order-id="'+task.orderId+'">'+toggleText+'</button>'
-        + '<button class="secondary" data-edit-task="'+task.id+'" data-order-id="'+task.orderId+'">编辑</button>'
-        + '<button class="secondary" data-delete-task="'+task.id+'" data-order-id="'+task.orderId+'">删除</button>'
-        + '</div>'
+        + actions
         + '</div>';
     }
 
@@ -2336,6 +2344,7 @@ function page() {
       e.preventDefault();
       const column = e.target.closest(".schedule-column");
       if (column) column.classList.remove("drag-over");
+      if (!requireBranch()) return;
       if (!draggedTask || !column) return;
 
       const targetStage = column.dataset.stage;
@@ -2424,6 +2433,7 @@ function page() {
     }
 
     async function toggleTaskComplete(taskId, orderId) {
+      if (!requireBranch()) return;
       const task = scheduleTasks.find(t => t.id === taskId && t.orderId === orderId);
       if (!task) return;
       const reason = task.completed ? "恢复任务" : "标记任务完成";
@@ -2451,6 +2461,7 @@ function page() {
     }
 
     async function deleteTask() {
+      if (!requireBranch()) return;
       if (!deletingTaskId || !deletingTaskOrderId) return;
       const reason = document.querySelector("#task-delete-reason").value.trim();
       const errorEl = document.querySelector("#task-delete-error");
@@ -2495,27 +2506,40 @@ function page() {
       if (!sel.value) { sel.value = currentBranchId; }
     }
 
-    function renderBranches() {
+    async function renderBranches() {
       const gridEl = document.querySelector("#branches-grid");
       if (!gridEl) return;
+      let branchStats = [];
+      try {
+        branchStats = await fetch("/api/branches/stats?branchId=" + currentBranchId).then(r => r.json());
+      } catch (e) {}
+      const statsMap = Object.fromEntries(branchStats.map(s => [s.branchId, s]));
+      const isAllView = currentBranchId === "__all__";
+      const addBranchBtn = document.querySelector("#add-branch-btn");
+      if (addBranchBtn) addBranchBtn.style.display = isAllView ? "none" : "";
       gridEl.innerHTML = branches.map(b => {
-        const orderCount = orders.filter(o => o.branchId === b.id).length;
+        const s = statsMap[b.id] || {};
+        const actionsHtml = isAllView ? '' : '<div class="row" style="margin-top:8px;">'
+          + '<button data-edit-branch="' + b.id + '">编辑</button>'
+          + (!b.isDefault ? '<button class="secondary" data-delete-branch="' + b.id + '" style="background:#9b2c2c;">删除</button>' : '')
+          + '</div>';
         return '<article class="card branch-card">'
           + '<div class="row"><h3 class="branch-name">' + b.name + '</h3>' + (b.isDefault ? '<span class="branch-default">默认</span>' : '') + '</div>'
           + '<div class="branch-info">'
           + '<div>负责人：' + (b.manager || '未指定') + '</div>'
           + '<div>电话：' + (b.phone || '未填写') + '</div>'
           + '<div>地址：' + (b.address || '未填写') + '</div>'
-          + '<div>订单数：' + orderCount + '</div>'
+          + '<div>订单数：' + (s.orderCount || 0) + '（进行中 ' + (s.activeOrderCount || 0) + '）</div>'
+          + '<div>客户数：' + (s.customerCount || 0) + ' · 材料数：' + (s.materialCount || 0) + ' · 作品数：' + (s.workCount || 0) + '</div>'
+          + '<div>应收 ¥' + (s.totalReceivable || 0) + ' · 已收 ¥' + (s.totalReceived || 0) + '</div>'
           + '<div>创建时间：' + fmtDate(b.createdAt) + '</div>'
           + '</div>'
-          + '<div class="row" style="margin-top:8px;">'
-          + '<button data-edit-branch="' + b.id + '">编辑</button>'
-          + (!b.isDefault ? '<button class="secondary" data-delete-branch="' + b.id + '" style="background:#9b2c2c;">删除</button>' : '')
-          + '</div></article>';
+          + actionsHtml
+          + '</article>';
       }).join("");
-      document.querySelectorAll("[data-edit-branch]").forEach(btn => btn.onclick = () => openBranchModal(btn.dataset.editBranch));
+      document.querySelectorAll("[data-edit-branch]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openBranchModal(btn.dataset.editBranch); });
       document.querySelectorAll("[data-delete-branch]").forEach(btn => btn.onclick = async () => {
+        if (!requireBranch()) return;
         if (!confirm("确定删除此分店？分店下不能有任何数据才能删除。")) return;
         try {
           await api("/api/branches/" + btn.dataset.deleteBranch, { method: "DELETE" });
@@ -3191,6 +3215,7 @@ function page() {
     document.querySelector("#task-date")?.addEventListener("change", scheduleWorkloadCheck);
 
     document.querySelector("#task-save")?.addEventListener("click", async () => {
+      if (!requireBranch()) return;
       if (!editingTask) return;
       const stage = document.querySelector("#task-stage").value;
       const assignee = document.querySelector("#task-assignee").value.trim();
@@ -3268,6 +3293,9 @@ const server = http.createServer(async (req, res) => {
     const db = await loadDb();
     const branchId = url.searchParams.get("branchId") || DEFAULT_BRANCH_ID;
     const byBranch = (items) => branchId === "__all__" ? items : items.filter(i => (i.branchId || DEFAULT_BRANCH_ID) === branchId);
+    if (branchId === "__all__" && req.method !== "GET") {
+      return sendJson(res, 403, { error: "总部视角下不能进行数据操作，请切换到具体分店" });
+    }
     if (req.method === "GET" && url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       return res.end(page());
@@ -3556,7 +3584,8 @@ const server = http.createServer(async (req, res) => {
             fishSpecies: order.fishSpecies,
             size: order.size,
             orderStatus: order.status,
-            dueDate: order.dueDate
+            dueDate: order.dueDate,
+            branchId: order.branchId || DEFAULT_BRANCH_ID
           });
         });
       });
@@ -4195,6 +4224,32 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/branches") {
       return sendJson(res, 200, db.branches || []);
+    }
+    if (req.method === "GET" && url.pathname === "/api/branches/stats") {
+      const allOrders = db.orders || [];
+      const allCustomers = db.customers || [];
+      const allMaterials = db.materials || [];
+      const allWorks = db.works || [];
+      const targetBranches = branchId === "__all__" ? (db.branches || []) : (db.branches || []).filter(b => b.id === branchId);
+      const stats = targetBranches.map(b => {
+        const bid = b.id;
+        return {
+          branchId: bid,
+          orderCount: allOrders.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === bid).length,
+          activeOrderCount: allOrders.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === bid && o.status !== "已完成").length,
+          customerCount: allCustomers.filter(c => (c.branchId || DEFAULT_BRANCH_ID) === bid).length,
+          materialCount: allMaterials.filter(m => (m.branchId || DEFAULT_BRANCH_ID) === bid).length,
+          workCount: allWorks.filter(w => (w.branchId || DEFAULT_BRANCH_ID) === bid).length,
+          totalReceivable: allOrders.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === bid).reduce((s, o) => s + (o.price || 0), 0),
+          totalReceived: allOrders.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === bid).reduce((s, o) => {
+            const payments = o.payments || [];
+            const paidSum = payments.reduce((ps, p) => ps + (p.amount || 0), 0);
+            if (o.paid && paidSum === 0) return s + (o.price || 0);
+            return s + paidSum;
+          }, 0)
+        };
+      });
+      return sendJson(res, 200, stats);
     }
     if (req.method === "POST" && url.pathname === "/api/branches") {
       const input = await body(req);

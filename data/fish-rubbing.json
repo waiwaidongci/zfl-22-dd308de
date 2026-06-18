@@ -582,6 +582,16 @@
       "note": "",
       "createdAt": "2026-06-18T05:16:46.721Z",
       "branchId": "BR-1781759806634"
+    },
+    {
+      "id": "C-1781765036660",
+      "name": "测试总部边界",
+      "phone": "",
+      "wechat": "",
+      "address": "",
+      "note": "",
+      "createdAt": "2026-06-18T06:43:56.660Z",
+      "branchId": "BR-DEFAULT"
     }
   ],
   "_customerMigrated": true,
