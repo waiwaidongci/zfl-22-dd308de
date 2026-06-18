@@ -8,6 +8,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = join(__dirname, "data", "fish-rubbing.json");
 const port = Number(process.env.PORT || 3022);
 
+const DEFAULT_BRANCH_ID = "BR-DEFAULT";
+
 const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
 const scheduleStages = ["待拓印", "晾干中", "装裱中", "待取件"];
 const MAX_TASKS_PER_DAY = 5;
@@ -292,6 +294,31 @@ async function migrateLegacyData(db) {
       }
     }
     db._changeRequestMigrated = true;
+    changed = true;
+  }
+  if (!db._branchMigrated) {
+    if (!db.branches) {
+      db.branches = [{ id: DEFAULT_BRANCH_ID, name: "总店（默认）", manager: "", address: "", phone: "", createdAt: new Date().toISOString(), isDefault: true }];
+    }
+    for (const order of (db.orders || [])) {
+      if (!order.branchId) { order.branchId = DEFAULT_BRANCH_ID; changed = true; }
+    }
+    for (const material of (db.materials || [])) {
+      if (!material.branchId) { material.branchId = DEFAULT_BRANCH_ID; changed = true; }
+    }
+    for (const customer of (db.customers || [])) {
+      if (!customer.branchId) { customer.branchId = DEFAULT_BRANCH_ID; changed = true; }
+    }
+    for (const work of (db.works || [])) {
+      if (!work.branchId) { work.branchId = DEFAULT_BRANCH_ID; changed = true; }
+    }
+    for (const tx of (db.materialTransactions || [])) {
+      if (!tx.branchId) { tx.branchId = DEFAULT_BRANCH_ID; changed = true; }
+    }
+    for (const change of (db.orderChanges || [])) {
+      if (!change.branchId) { change.branchId = DEFAULT_BRANCH_ID; changed = true; }
+    }
+    db._branchMigrated = true;
     changed = true;
   }
   if (changed) {
@@ -639,11 +666,28 @@ function page() {
     .dashboard-paid-badge.full { background:#dff0ed; color:#1e5854; }
     .dashboard-paid-badge.partial { background:#fde8d8; color:#8a4a1e; }
     .dashboard-paid-badge.none { background:#fce4e4; color:#9b2c2c; }
+    .branch-card { display:grid;gap:8px; }
+    .branch-card .branch-name { font-size:18px;font-weight:700;margin:0; }
+    .branch-card .branch-default { display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#dff0ed;color:#1e5854; }
+    .branch-card .branch-info { font-size:13px;color:var(--muted);display:grid;gap:4px; }
+    .cross-branch-table { width:100%;border-collapse:collapse;background:var(--panel);border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:12px; }
+    .cross-branch-table th { background:var(--bg);padding:10px 12px;text-align:left;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line);font-weight:600; }
+    .cross-branch-table td { padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line); }
+    .cross-branch-table tr:last-child td { border-bottom:none; }
     @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } }
   </style>
 </head>
 <body>
-  <header><div><h1>鱼拓装裱工作室</h1><div class="meta">接单、拓印、装裱、交付 · 作品沉淀</div></div><button id="reload">刷新</button></header>
+  <header>
+    <div>
+      <h1>鱼拓装裱工作室</h1>
+      <div class="meta">接单、拓印、装裱、交付 · 作品沉淀</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <select id="branch-selector" style="min-width:160px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;font:inherit;"></select>
+      <button id="reload">刷新</button>
+    </div>
+  </header>
   <main>
     <div class="tabs">
       <div class="tab active" data-tab="orders">委托单管理</div>
@@ -654,6 +698,7 @@ function page() {
       <div class="tab" data-tab="materials">材料库存</div>
       <div class="tab" data-tab="changes">变更审批</div>
       <div class="tab" data-tab="dashboard">经营看板</div>
+      <div class="tab" data-tab="branches">分店管理</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
@@ -839,6 +884,14 @@ function page() {
         <h3>订单明细</h3>
         <div id="db-detail-list"></div>
       </div>
+    </div>
+
+    <div class="tab-content" id="tab-branches">
+      <div class="section-title-row">
+        <h2 style="margin:0;">分店列表</h2>
+        <button id="add-branch-btn">+ 新增分店</button>
+      </div>
+      <div class="grid" id="branches-grid"></div>
     </div>
   </main>
   <div class="modal-overlay" id="modal-overlay">
@@ -1033,11 +1086,27 @@ function page() {
       <button class="secondary modal-close" id="cd-close" style="margin-top:8px;width:100%;">关闭</button>
     </div>
   </div>
+  <div class="modal-overlay" id="branch-modal-overlay">
+    <div class="modal">
+      <h3 id="branch-modal-title">新增分店</h3>
+      <div class="modal-sub" id="branch-modal-sub"></div>
+      <label>分店名称</label><input id="bm-name" required>
+      <label>负责人</label><input id="bm-manager">
+      <label>联系电话</label><input id="bm-phone">
+      <label>地址</label><input id="bm-address">
+      <div id="bm-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="bm-close">取消</button>
+        <button id="bm-save">保存</button>
+      </div>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
     const MATERIAL_CATEGORIES = ${JSON.stringify(MATERIAL_CATEGORIES)};
     const scheduleStages = ${JSON.stringify(scheduleStages)};
     const MAX_TASKS_PER_DAY = ${MAX_TASKS_PER_DAY};
+    const DEFAULT_BRANCH_ID = "${DEFAULT_BRANCH_ID}";
     let orders = [];
     let works = [];
     let customers = [];
@@ -1071,12 +1140,25 @@ function page() {
     let changesFilter = "";
     let dashboardData = null;
     let dashboardPeriod = "week";
+    let branches = [];
+    let currentBranchId = DEFAULT_BRANCH_ID;
+    let editingBranchId = null;
 
     async function api(path, options) {
-      const res = await fetch(path, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
+      const sep = path.includes('?') ? '&' : '?';
+      const branchParam = (path.startsWith('/api/dashboard/cross-branch') || path.startsWith('/api/branches')) ? '' : sep + 'branchId=' + currentBranchId;
+      const res = await fetch(path + branchParam, options && options.body ? { ...options, headers:{ "Content-Type":"application/json" } } : options);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "请求失败");
       return data;
+    }
+
+    function requireBranch() {
+      if (currentBranchId === "__all__") {
+        alert("总部视角下不能进行数据操作，请切换到具体分店");
+        return false;
+      }
+      return true;
     }
 
     function fmtDate(iso) {
@@ -1102,6 +1184,8 @@ function page() {
     }
 
     function renderOrders() {
+      const formEl = document.querySelector("#form");
+      if (formEl) formEl.style.display = currentBranchId === "__all__" ? "none" : "";
       const customerSelect = document.querySelector("#customer-select");
       const prevCustomer = customerSelect.value;
       customerSelect.innerHTML = '<option value="">-- 选择已有客户 --</option>'
@@ -1142,10 +1226,13 @@ function page() {
             stockHtml = '<div class="order-card-stock ok">✓ 材料库存充足</div>';
           }
         }
-        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div><div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div>'+(o.note?'<div style="font-size:12px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--bg);border-radius:4px;">📝 '+o.note+'</div>':'')+'<div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+'<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
+        const branchName = branches.find(b => b.id === (o.branchId || DEFAULT_BRANCH_ID))?.name || "未知分店";
+        const branchLabel = currentBranchId === "__all__" ? '<span class="meta" style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:3px;">🏢 ' + branchName + '</span>' : "";
+        return '<article class="card"><div class="row"><h3>'+o.client+' · '+o.fishSpecies+'</h3><span class="pill '+(o.archived?'archived':'')+'">'+o.status+(o.archived?' · 已归档':'')+'</span></div>'+branchLabel+'<div class="meta">'+o.size+' · '+o.paper+' · '+o.mounting+'</div><div>'+o.inkPlan+'</div><div>题字：'+(o.inscription || "无")+'</div>'+(o.note?'<div style="font-size:12px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--bg);border-radius:4px;">📝 '+o.note+'</div>':'')+'<div class="row"><div class="money">报价'+(o.price||0)+'元 <span class="paid-status '+pi.cls+'">'+pi.text+'</span></div><div class="meta">负责人：'+o.owner+'</div></div>'+stockHtml+'<label>阶段更新</label><select data-id="'+o.id+'">'+stages.map(s => '<option>'+s+'</option>').join("")+'</select><input data-note="'+o.id+'" placeholder="本阶段备注"><div class="row"><button data-save="'+o.id+'">记录阶段</button><button class="secondary" data-payment="'+o.id+'">收款记录</button>'+archiveBtn+'</div><div class="meta">'+o.history.map(h => h.stage+"："+h.note).join(" / ")+'</div></article>';
       }).join("");
       document.querySelectorAll("[data-id]").forEach(sel => { sel.value = orders.find(o => o.id === sel.dataset.id).status; });
       document.querySelectorAll("[data-save]").forEach(btn => btn.onclick = async () => {
+        if (!requireBranch()) return;
         const id = btn.dataset.save;
         const status = document.querySelector('[data-id="'+id+'"]').value;
         const note = document.querySelector('[data-note="'+id+'"]').value || "阶段更新";
@@ -1153,6 +1240,7 @@ function page() {
         await load();
       });
       document.querySelectorAll("[data-archive]").forEach(btn => btn.onclick = async () => {
+        if (!requireBranch()) return;
         if (!confirm("确认将此订单归档为作品档案？归档后可在「作品档案」中浏览。")) return;
         const id = btn.dataset.archive;
         try {
@@ -1162,6 +1250,7 @@ function page() {
         } catch (e) { alert(e.message); }
       });
       document.querySelectorAll("[data-payment]").forEach(btn => btn.onclick = () => {
+        if (!requireBranch()) return;
         openPaymentModal(btn.dataset.payment);
       });
     }
@@ -1198,6 +1287,8 @@ function page() {
     }
 
     function renderCustomers() {
+      const addBtn = document.querySelector("#add-customer-btn");
+      if (addBtn) addBtn.style.display = currentBranchId === "__all__" ? "none" : "";
       const listView = document.querySelector("#customers-list-view");
       const detailView = document.querySelector("#customer-detail-view");
       if (detailView.style.display === "block") {
@@ -1340,9 +1431,10 @@ function page() {
           customerDetailTab = t.dataset.cdTab;
           renderCustomerDetail();
         });
-        document.querySelector("[data-edit-customer-btn]")?.addEventListener("click", () => openCustomerModal(customer.id));
+        document.querySelector("[data-edit-customer-btn]")?.addEventListener("click", () => { if (!requireBranch()) return; openCustomerModal(customer.id); });
         const delBtn = document.querySelector("[data-delete-customer-btn]");
         if (delBtn) delBtn.onclick = async () => {
+          if (!requireBranch()) return;
           if (!confirm("确认删除此客户档案？删除后历史订单将保留，但会解除与该客户的关联。")) return;
           try {
             await api("/api/customers/"+customer.id, { method: "DELETE" });
@@ -1387,6 +1479,8 @@ function page() {
     }
 
     function renderMaterials() {
+      const addMatBtn = document.querySelector("#add-material-btn");
+      if (addMatBtn) addMatBtn.style.display = currentBranchId === "__all__" ? "none" : "";
       const statsEl = document.querySelector("#material-stats");
       const gridEl = document.querySelector("#materials-grid");
       const txListEl = document.querySelector("#tx-list");
@@ -1435,8 +1529,8 @@ function page() {
         }).join("");
       }
 
-      document.querySelectorAll("[data-stock-in]").forEach(btn => btn.onclick = () => openStockInModal(btn.dataset.stockIn));
-      document.querySelectorAll("[data-edit-material]").forEach(btn => btn.onclick = () => openMaterialModal(btn.dataset.editMaterial));
+      document.querySelectorAll("[data-stock-in]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openStockInModal(btn.dataset.stockIn); });
+      document.querySelectorAll("[data-edit-material]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openMaterialModal(btn.dataset.editMaterial); });
 
       const txFiltered = txMaterialFilter ? materialTransactions.filter(t => t.materialId === txMaterialFilter) : materialTransactions;
       if (txFiltered.length === 0) {
@@ -1502,6 +1596,17 @@ function page() {
     }
 
     async function loadDashboard() {
+      if (currentBranchId === "__all__") {
+        const params = new URLSearchParams();
+        params.set("period", dashboardPeriod);
+        if (dashboardPeriod === "custom") {
+          params.set("start", document.querySelector("#db-start").value || "");
+          params.set("end", document.querySelector("#db-end").value || "");
+        }
+        dashboardData = await api("/api/dashboard/cross-branch?" + params.toString());
+        renderCrossBranchDashboard();
+        return;
+      }
       let url = "/api/dashboard?period=" + dashboardPeriod;
       if (dashboardPeriod === "custom") {
         const start = document.querySelector("#db-start").value;
@@ -1597,6 +1702,50 @@ function page() {
               + '<td><span class="dashboard-paid-badge ' + pi.cls + '">' + pi.text + '</span></td>'
               + '<td>' + (isOverdue ? '<span class="dashboard-overdue-badge">逾期 ' + o.daysOverdue + ' 天</span>' : o.dueDate) + '</td></tr>';
           }).join("")
+          + '</tbody></table>';
+      }
+    }
+
+    function renderCrossBranchDashboard() {
+      if (!dashboardData) return;
+      const d = dashboardData;
+      document.querySelector("#db-date-range").textContent = d.startDate + " 至 " + d.endDate;
+      const statsEl = document.querySelector("#db-stats");
+      const unpaid = d.totalReceivable - d.totalReceived;
+      statsEl.innerHTML = ""
+        + '<div class="dashboard-stat"><div class="ds-label">订单总数</div><div class="ds-value accent">' + d.totalCount + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">已完成</div><div class="ds-value accent">' + d.totalCompleted + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">应收金额</div><div class="ds-value warn">¥' + d.totalReceivable.toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">已收金额</div><div class="ds-value accent">¥' + d.totalReceived.toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">未收金额</div><div class="ds-value ' + (unpaid > 0 ? "warn" : "accent") + '">¥' + unpaid.toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">逾期订单</div><div class="ds-value ' + (d.totalOverdue > 0 ? "danger" : "accent") + '">' + d.totalOverdue + '</div></div>';
+      const stageEl = document.querySelector("#db-stage-section");
+      stageEl.querySelector("h3").textContent = "分店对比";
+      const barEl = document.querySelector("#db-stage-bar");
+      barEl.innerHTML = "";
+      const legendEl = document.querySelector("#db-stage-legend");
+      if (d.branchSummaries.length === 0) {
+        legendEl.innerHTML = '<div style="color:var(--muted);">暂无分店数据</div>';
+      } else {
+        legendEl.innerHTML = '<table class="cross-branch-table"><thead><tr><th>分店</th><th>订单数</th><th>已完成</th><th>应收</th><th>已收</th><th>逾期</th></tr></thead><tbody>'
+          + d.branchSummaries.map(b => '<tr><td><strong>' + b.branchName + '</strong></td><td>' + b.orderCount + '</td><td>' + b.completedCount + '</td><td>¥' + b.totalReceivable.toLocaleString() + '</td><td>¥' + b.totalReceived.toLocaleString() + '</td><td>' + b.overdueCount + '</td></tr>').join("")
+          + '</tbody></table>';
+      }
+      const ownerEl = document.querySelector("#db-owner-section");
+      ownerEl.style.display = "none";
+      const overdueEl = document.querySelector("#db-overdue-section");
+      overdueEl.style.display = "none";
+      const detailEl = document.querySelector("#db-detail-section");
+      detailEl.querySelector("h3").textContent = "全部订单明细";
+      if (d.allOrders.length === 0) {
+        detailEl.innerHTML = '<h3>全部订单明细</h3><div class="dashboard-empty"><div class="empty-icon">📋</div><div class="empty-text">所选时段内暂无订单</div></div>';
+      } else {
+        detailEl.innerHTML = '<h3>全部订单明细</h3><div style="margin-bottom:10px;font-size:13px;color:var(--muted);">共 ' + d.allOrders.length + ' 条订单记录</div>'
+          + '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>分店</th><th>委托人</th><th>鱼种</th><th>阶段</th><th>负责人</th><th>报价</th><th>交付日期</th></tr></thead><tbody>'
+          + d.allOrders.map(o => '<tr><td>' + o.id + '</td><td>' + (o.branchName || "未知") + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
+            + '<td>' + o.status + '</td><td>' + o.owner + '</td>'
+            + '<td>¥' + (o.price || 0) + '</td>'
+            + '<td>' + o.dueDate + '</td></tr>').join("")
           + '</tbody></table>';
       }
     }
@@ -1950,7 +2099,7 @@ function page() {
       modalDetail.innerHTML = html;
       const changeBtn = modalDetail.querySelector('[data-change-request]');
       if (changeBtn) {
-        changeBtn.onclick = () => openChangeRequestModal(order.id);
+        changeBtn.onclick = () => { if (!requireBranch()) return; openChangeRequestModal(order.id); };
       }
       modalOverlay.classList.add("active");
     }
@@ -2335,28 +2484,138 @@ function page() {
       else if (currentTab === "materials") renderMaterials();
       else if (currentTab === "changes") renderChanges();
       else if (currentTab === "dashboard") renderDashboard();
+      else if (currentTab === "branches") renderBranches();
     }
 
+    function renderBranchSelector() {
+      const sel = document.querySelector("#branch-selector");
+      const prevVal = sel.value || currentBranchId;
+      sel.innerHTML = branches.map(b => '<option value="'+b.id+'">'+b.name+(b.isDefault?' (默认)':'')+'</option>').join("") + '<option value="__all__">🏢 全部分店（总部视角）</option>';
+      sel.value = prevVal;
+      if (!sel.value) { sel.value = currentBranchId; }
+    }
+
+    function renderBranches() {
+      const gridEl = document.querySelector("#branches-grid");
+      if (!gridEl) return;
+      gridEl.innerHTML = branches.map(b => {
+        const orderCount = orders.filter(o => o.branchId === b.id).length;
+        return '<article class="card branch-card">'
+          + '<div class="row"><h3 class="branch-name">' + b.name + '</h3>' + (b.isDefault ? '<span class="branch-default">默认</span>' : '') + '</div>'
+          + '<div class="branch-info">'
+          + '<div>负责人：' + (b.manager || '未指定') + '</div>'
+          + '<div>电话：' + (b.phone || '未填写') + '</div>'
+          + '<div>地址：' + (b.address || '未填写') + '</div>'
+          + '<div>订单数：' + orderCount + '</div>'
+          + '<div>创建时间：' + fmtDate(b.createdAt) + '</div>'
+          + '</div>'
+          + '<div class="row" style="margin-top:8px;">'
+          + '<button data-edit-branch="' + b.id + '">编辑</button>'
+          + (!b.isDefault ? '<button class="secondary" data-delete-branch="' + b.id + '" style="background:#9b2c2c;">删除</button>' : '')
+          + '</div></article>';
+      }).join("");
+      document.querySelectorAll("[data-edit-branch]").forEach(btn => btn.onclick = () => openBranchModal(btn.dataset.editBranch));
+      document.querySelectorAll("[data-delete-branch]").forEach(btn => btn.onclick = async () => {
+        if (!confirm("确定删除此分店？分店下不能有任何数据才能删除。")) return;
+        try {
+          await api("/api/branches/" + btn.dataset.deleteBranch, { method: "DELETE" });
+          if (currentBranchId === btn.dataset.deleteBranch) currentBranchId = DEFAULT_BRANCH_ID;
+          await load();
+        } catch (e) { alert(e.message); }
+      });
+    }
+
+    function openBranchModal(branchId) {
+      editingBranchId = branchId || null;
+      const overlay = document.querySelector("#branch-modal-overlay");
+      const title = document.querySelector("#branch-modal-title");
+      const sub = document.querySelector("#branch-modal-sub");
+      const errorEl = document.querySelector("#bm-error");
+      errorEl.style.display = "none";
+      if (editingBranchId) {
+        const b = branches.find(x => x.id === editingBranchId);
+        if (!b) return;
+        title.textContent = "编辑分店";
+        sub.textContent = b.id;
+        document.querySelector("#bm-name").value = b.name || "";
+        document.querySelector("#bm-manager").value = b.manager || "";
+        document.querySelector("#bm-phone").value = b.phone || "";
+        document.querySelector("#bm-address").value = b.address || "";
+      } else {
+        title.textContent = "新增分店";
+        sub.textContent = "";
+        document.querySelector("#bm-name").value = "";
+        document.querySelector("#bm-manager").value = "";
+        document.querySelector("#bm-phone").value = "";
+        document.querySelector("#bm-address").value = "";
+      }
+      overlay.classList.add("active");
+    }
+
+    document.querySelector("#branch-selector").onchange = (e) => {
+      currentBranchId = e.target.value;
+      load();
+    };
+
+    document.querySelector("#bm-close")?.addEventListener("click", () => {
+      document.querySelector("#branch-modal-overlay").classList.remove("active");
+      editingBranchId = null;
+    });
+    document.querySelector("#branch-modal-overlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "branch-modal-overlay") {
+        document.querySelector("#branch-modal-overlay").classList.remove("active");
+        editingBranchId = null;
+      }
+    });
+    document.querySelector("#bm-save")?.addEventListener("click", async () => {
+      const name = document.querySelector("#bm-name").value.trim();
+      const manager = document.querySelector("#bm-manager").value.trim();
+      const phone = document.querySelector("#bm-phone").value.trim();
+      const address = document.querySelector("#bm-address").value.trim();
+      const errorEl = document.querySelector("#bm-error");
+      if (!name) { errorEl.textContent = "分店名称不能为空"; errorEl.style.display = "block"; return; }
+      try {
+        if (editingBranchId) {
+          await api("/api/branches/" + editingBranchId, { method: "PUT", body: JSON.stringify({ name, manager, phone, address }) });
+        } else {
+          await api("/api/branches", { method: "POST", body: JSON.stringify({ name, manager, phone, address }) });
+        }
+        document.querySelector("#branch-modal-overlay").classList.remove("active");
+        editingBranchId = null;
+        await load();
+      } catch (e) { errorEl.textContent = e.message; errorEl.style.display = "block"; }
+    });
+    document.querySelector("#add-branch-btn")?.addEventListener("click", () => openBranchModal());
+
     async function load() {
+      branches = await api("/api/branches");
+      renderBranchSelector();
       orders = await api("/api/orders");
       works = await api("/api/works");
       customers = await api("/api/customers");
       assignees = await api("/api/assignees");
       materials = await api("/api/materials");
+      materialTransactions = await api("/api/materials/transactions");
       changeRequests = await api("/api/change-requests");
+      renderOrders();
+      renderWorks();
+      renderCustomers();
+      renderMaterials();
+      renderChanges();
       if (currentTab === "calendar") {
         calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
+        renderCalendar();
       }
       if (currentTab === "schedule") {
         scheduleTasks = await loadScheduleTasks();
-      }
-      if (currentTab === "materials") {
-        materialTransactions = await api("/api/materials/transactions");
+        renderSchedule();
       }
       if (currentTab === "dashboard") {
         await loadDashboard();
       }
-      render();
+      if (currentTab === "branches") {
+        renderBranches();
+      }
     }
 
     async function loadCalendar() {
@@ -2392,6 +2651,8 @@ function page() {
         render();
       } else if (currentTab === "dashboard") {
         await loadDashboard();
+      } else if (currentTab === "branches") {
+        renderBranches();
       } else {
         render();
       }
@@ -2456,7 +2717,7 @@ function page() {
       txMaterialFilter = e.target.value;
       renderMaterials();
     });
-    document.querySelector("#add-material-btn")?.addEventListener("click", () => openMaterialModal());
+    document.querySelector("#add-material-btn")?.addEventListener("click", () => { if (!requireBranch()) return; openMaterialModal(); });
 
     async function updateFormEstimate() {
       const form = document.querySelector("#form");
@@ -2513,6 +2774,7 @@ function page() {
       }
     });
     document.querySelector("#mm-save")?.addEventListener("click", async () => {
+      if (!requireBranch()) return;
       const name = document.querySelector("#mm-name").value.trim();
       const category = document.querySelector("#mm-category").value;
       const unit = document.querySelector("#mm-unit").value.trim();
@@ -2645,6 +2907,7 @@ function page() {
       }
     };
     document.querySelector("#pay-submit").onclick = async () => {
+      if (!requireBranch()) return;
       if (!currentPaymentOrderId) return;
       const type = document.querySelector("#pay-type").value;
       const amount = document.querySelector("#pay-amount").value;
@@ -2746,6 +3009,7 @@ function page() {
 
     document.querySelector("#form").onsubmit = async (event) => {
       event.preventDefault();
+      if (!requireBranch()) return;
       const form = event.target;
       const data = Object.fromEntries(new FormData(form).entries());
       const errorEl = document.createElement("div");
@@ -2792,7 +3056,7 @@ function page() {
       }
     };
 
-    document.querySelector("#add-customer-btn").onclick = () => openCustomerModal();
+    document.querySelector("#add-customer-btn").onclick = () => { if (!requireBranch()) return; openCustomerModal(); };
     document.querySelector("#back-to-customers").onclick = async () => {
       document.querySelector("#customer-detail-view").style.display = "none";
       document.querySelector("#customers-list-view").style.display = "block";
@@ -2817,6 +3081,7 @@ function page() {
       }
     };
     document.querySelector("#cm-save").onclick = async () => {
+      if (!requireBranch()) return;
       const name = document.querySelector("#cm-name").value.trim();
       const phone = document.querySelector("#cm-phone").value.trim();
       const wechat = document.querySelector("#cm-wechat").value.trim();
@@ -3001,12 +3266,14 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const db = await loadDb();
+    const branchId = url.searchParams.get("branchId") || DEFAULT_BRANCH_ID;
+    const byBranch = (items) => branchId === "__all__" ? items : items.filter(i => (i.branchId || DEFAULT_BRANCH_ID) === branchId);
     if (req.method === "GET" && url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       return res.end(page());
     }
     if (req.method === "GET" && url.pathname === "/api/materials") {
-      const withAvailability = db.materials.map(m => ({
+      const withAvailability = byBranch(db.materials).map(m => ({
         ...m,
         available: (m.stock || 0) - (m.reserved || 0),
         isLow: ((m.stock || 0) - (m.reserved || 0)) <= (m.threshold || 0)
@@ -3026,7 +3293,8 @@ const server = http.createServer(async (req, res) => {
         stock: Number(input.stock || 0),
         reserved: 0,
         threshold: Number(input.threshold || 0),
-        note: input.note || ""
+        note: input.note || "",
+        branchId
       };
       db.materials.push(mat);
       if (mat.stock > 0) {
@@ -3039,7 +3307,8 @@ const server = http.createServer(async (req, res) => {
           after: mat.stock,
           orderId: null,
           note: "初始库存",
-          at: new Date().toISOString()
+          at: new Date().toISOString(),
+          branchId
         });
       }
       await saveDb(db);
@@ -3050,8 +3319,9 @@ const server = http.createServer(async (req, res) => {
       const usage = estimateMaterialUsage(input);
       const details = [];
       let hasShortage = false;
+      const branchMaterials = byBranch(db.materials || []);
       for (const [matId, qty] of Object.entries(usage)) {
-        const mat = db.materials.find(m => m.id === matId);
+        const mat = branchMaterials.find(m => m.id === matId);
         if (mat) {
           const available = (mat.stock || 0) - (mat.reserved || 0);
           const shortage = available < qty;
@@ -3071,7 +3341,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/materials/transactions") {
       const materialId = url.searchParams.get("materialId");
-      let list = db.materialTransactions || [];
+      let list = byBranch(db.materialTransactions || []);
       if (materialId) {
         list = list.filter(t => t.materialId === materialId);
       }
@@ -3084,7 +3354,7 @@ const server = http.createServer(async (req, res) => {
     }
     const stockInMatch = url.pathname.match(/^\/api\/materials\/([^/]+)\/stock-in$/);
     if (stockInMatch && req.method === "POST") {
-      const mat = db.materials.find(m => m.id === stockInMatch[1]);
+      const mat = byBranch(db.materials).find(m => m.id === stockInMatch[1]);
       if (!mat) return sendJson(res, 404, { error: "material_not_found" });
       const input = await body(req);
       const qty = Number(input.quantity || 0);
@@ -3100,14 +3370,15 @@ const server = http.createServer(async (req, res) => {
         after: mat.stock,
         orderId: null,
         note: input.note || "",
-        at: new Date().toISOString()
+        at: new Date().toISOString(),
+        branchId: mat.branchId || branchId
       });
       await saveDb(db);
       return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
     }
     const matUpdateMatch = url.pathname.match(/^\/api\/materials\/([^/]+)$/);
     if (matUpdateMatch) {
-      const mat = db.materials.find(m => m.id === matUpdateMatch[1]);
+      const mat = byBranch(db.materials).find(m => m.id === matUpdateMatch[1]);
       if (!mat) return sendJson(res, 404, { error: "material_not_found" });
       if (req.method === "PUT") {
         const input = await body(req);
@@ -3144,7 +3415,7 @@ const server = http.createServer(async (req, res) => {
         startDate = customStart || todayStr;
         endDate = customEnd || todayStr;
       }
-      const filtered = db.orders.filter(o => {
+      const filtered = byBranch(db.orders).filter(o => {
         const created = o.history && o.history[0] ? toLocalDateString(o.history[0].at) : (o.dueDate || "");
         return created >= startDate && created <= endDate;
       });
@@ -3241,11 +3512,13 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (req.method === "GET" && url.pathname === "/api/orders") {
-      const ordersWithStock = db.orders.map(o => {
+      const branchOrders = byBranch(db.orders);
+      const branchMaterials = byBranch(db.materials || []);
+      const ordersWithStock = branchOrders.map(o => {
         let stockStatus = "ok";
         if (o.status !== "已完成" && o.materialUsage) {
           for (const [matId, qty] of Object.entries(o.materialUsage)) {
-            const mat = db.materials.find(m => m.id === matId);
+            const mat = branchMaterials.find(m => m.id === matId);
             if (mat) {
               const othersReserved = (mat.reserved || 0) - qty;
               const available = (mat.stock || 0) - Math.max(0, othersReserved);
@@ -3262,7 +3535,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/assignees") {
       const assignees = new Set();
-      db.orders.forEach(o => {
+      byBranch(db.orders).forEach(o => {
         if (o.owner) assignees.add(o.owner);
         (o.tasks || []).forEach(t => { if (t.assignee) assignees.add(t.assignee); });
       });
@@ -3274,7 +3547,7 @@ const server = http.createServer(async (req, res) => {
       const endDate = url.searchParams.get("end");
       const assignee = url.searchParams.get("assignee");
       const allTasks = [];
-      db.orders.forEach(order => {
+      byBranch(db.orders).forEach(order => {
         (order.tasks || []).forEach(task => {
           allTasks.push({
             ...task,
@@ -3307,7 +3580,7 @@ const server = http.createServer(async (req, res) => {
       const { assignee, date, excludeTaskId } = input;
       if (!assignee || !date) return sendJson(res, 400, { error: "assignee_and_date_required" });
       let count = 0;
-      db.orders.forEach(order => {
+      byBranch(db.orders).forEach(order => {
         (order.tasks || []).forEach(task => {
           if (task.assignee === assignee && task.date === date && !task.completed) {
             if (!excludeTaskId || task.id !== excludeTaskId) {
@@ -3331,7 +3604,7 @@ const server = http.createServer(async (req, res) => {
       if (!year || !month) return sendJson(res, 400, { error: "year_and_month_required" });
       const startDate = new Date(year, month - 1, 1);
       const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-      const filtered = db.orders.filter(o => {
+      const filtered = byBranch(db.orders).filter(o => {
         const due = new Date(o.dueDate);
         return due >= startDate && due <= endDate;
       });
@@ -3349,7 +3622,8 @@ const server = http.createServer(async (req, res) => {
           wechat: input.newCustomer.wechat || "",
           address: input.newCustomer.address || "",
           note: input.newCustomer.note || "",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          branchId
         };
         db.customers.push(newCust);
         customerId = newCust.id;
@@ -3383,11 +3657,13 @@ const server = http.createServer(async (req, res) => {
         status: "待拓印",
         tasks: initialTasks,
         materialUsage,
-        history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }]
+        history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }],
+        branchId
       };
       delete order.newCustomer;
+      const branchMaterials = byBranch(db.materials || []);
       for (const [matId, qty] of Object.entries(materialUsage)) {
-        const mat = db.materials.find(m => m.id === matId);
+        const mat = branchMaterials.find(m => m.id === matId);
         if (mat) {
           mat.reserved = (mat.reserved || 0) + qty;
         }
@@ -3398,7 +3674,7 @@ const server = http.createServer(async (req, res) => {
     }
     const stageMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/stage$/);
     if (stageMatch && req.method === "POST") {
-      const order = db.orders.find(item => item.id === stageMatch[1]);
+      const order = db.orders.find(item => item.id === stageMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       const input = await body(req);
       const oldStatus = order.status;
@@ -3406,8 +3682,10 @@ const server = http.createServer(async (req, res) => {
       order.history.push({ at: new Date().toISOString(), stage: input.status, note: input.note || "" });
 
       if (input.status === "已完成" && oldStatus !== "已完成" && order.materialUsage && !order.materialDeducted) {
+        const orderBranchId = order.branchId || branchId;
+        const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
         for (const [matId, qty] of Object.entries(order.materialUsage)) {
-          const mat = db.materials.find(m => m.id === matId);
+          const mat = branchMaterials.find(m => m.id === matId);
           if (mat) {
             const beforeStock = mat.stock || 0;
             const beforeReserved = mat.reserved || 0;
@@ -3425,7 +3703,8 @@ const server = http.createServer(async (req, res) => {
               after: mat.stock,
               orderId: order.id,
               note: `订单 ${order.id} 完成，扣减实际用量`,
-              at: new Date().toISOString()
+              at: new Date().toISOString(),
+              branchId: orderBranchId
             });
           }
         }
@@ -3433,8 +3712,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (input.status !== "已完成" && oldStatus === "已完成" && order.materialUsage && order.materialDeducted) {
+        const orderBranchId = order.branchId || branchId;
+        const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
         for (const [matId, qty] of Object.entries(order.materialUsage)) {
-          const mat = db.materials.find(m => m.id === matId);
+          const mat = branchMaterials.find(m => m.id === matId);
           if (mat) {
             const beforeStock = mat.stock || 0;
             mat.stock = beforeStock + qty;
@@ -3450,7 +3731,8 @@ const server = http.createServer(async (req, res) => {
               after: mat.stock,
               orderId: order.id,
               note: `订单 ${order.id} 状态回退，恢复材料`,
-              at: new Date().toISOString()
+              at: new Date().toISOString(),
+              branchId: orderBranchId
             });
           }
         }
@@ -3479,7 +3761,7 @@ const server = http.createServer(async (req, res) => {
     }
     const tasksMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/tasks$/);
     if (tasksMatch) {
-      const order = db.orders.find(item => item.id === tasksMatch[1]);
+      const order = db.orders.find(item => item.id === tasksMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       if (!order.tasks) order.tasks = [];
       if (req.method === "GET") {
@@ -3521,7 +3803,7 @@ const server = http.createServer(async (req, res) => {
     }
     const taskMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/tasks\/([^/]+)$/);
     if (taskMatch) {
-      const order = db.orders.find(item => item.id === taskMatch[1]);
+      const order = db.orders.find(item => item.id === taskMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       if (!order.tasks) order.tasks = [];
       const task = order.tasks.find(t => t.id === taskMatch[2]);
@@ -3582,10 +3864,10 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true });
       }
     }
-    if (req.method === "GET" && url.pathname === "/api/works") return sendJson(res, 200, db.works || []);
+    if (req.method === "GET" && url.pathname === "/api/works") return sendJson(res, 200, byBranch(db.works || []));
     const paymentsMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/payments$/);
     if (paymentsMatch) {
-      const order = db.orders.find(item => item.id === paymentsMatch[1]);
+      const order = db.orders.find(item => item.id === paymentsMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       if (req.method === "GET") {
         return sendJson(res, 200, order.payments || []);
@@ -3611,7 +3893,7 @@ const server = http.createServer(async (req, res) => {
     }
     const archiveMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/archive$/);
     if (archiveMatch && req.method === "POST") {
-      const order = db.orders.find(item => item.id === archiveMatch[1]);
+      const order = db.orders.find(item => item.id === archiveMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       if (order.status !== "已完成") return sendJson(res, 400, { error: "only_completed_can_archive" });
       if (order.archived) return sendJson(res, 400, { error: "already_archived" });
@@ -3628,7 +3910,8 @@ const server = http.createServer(async (req, res) => {
         mounting: order.mounting,
         inscription: order.inscription,
         owner: order.owner,
-        completedAt: order.history.find(h => h.stage === "已完成")?.at || new Date().toISOString()
+        completedAt: order.history.find(h => h.stage === "已完成")?.at || new Date().toISOString(),
+        branchId: order.branchId || branchId
       };
       db.works.unshift(work);
       order.archived = true;
@@ -3636,7 +3919,9 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, work);
     }
     if (req.method === "GET" && url.pathname === "/api/customers") {
-      const list = (db.customers || []).map(c => enrichCustomer(c, db.orders, db.works || []));
+      const branchOrders = byBranch(db.orders || []);
+      const branchWorks = byBranch(db.works || []);
+      const list = byBranch(db.customers || []).map(c => enrichCustomer(c, branchOrders, branchWorks));
       const keyword = url.searchParams.get("q")?.trim();
       const result = keyword
         ? list.filter(c => c.name.includes(keyword) || (c.phone || "").includes(keyword) || (c.wechat || "").includes(keyword))
@@ -3653,22 +3938,27 @@ const server = http.createServer(async (req, res) => {
         wechat: input.wechat || "",
         address: input.address || "",
         note: input.note || "",
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        branchId
       };
       db.customers = db.customers || [];
       db.customers.push(customer);
       await saveDb(db);
-      return sendJson(res, 201, enrichCustomer(customer, db.orders, db.works || []));
+      const branchOrders = byBranch(db.orders || []);
+      const branchWorks = byBranch(db.works || []);
+      return sendJson(res, 201, enrichCustomer(customer, branchOrders, branchWorks));
     }
     const custMatch = url.pathname.match(/^\/api\/customers\/([^/]+)$/);
     if (custMatch) {
-      const customer = (db.customers || []).find(c => c.id === custMatch[1]);
+      const customer = byBranch(db.customers || []).find(c => c.id === custMatch[1]);
       if (!customer) return sendJson(res, 404, { error: "customer_not_found" });
+      const branchOrders = byBranch(db.orders || []);
+      const branchWorks = byBranch(db.works || []);
       if (req.method === "GET") {
-        const cOrders = db.orders.filter(o => o.customerId === customer.id);
-        const cWorks = (db.works || []).filter(w => w.customerId === customer.id);
+        const cOrders = branchOrders.filter(o => o.customerId === customer.id);
+        const cWorks = branchWorks.filter(w => w.customerId === customer.id);
         return sendJson(res, 200, {
-          ...enrichCustomer(customer, db.orders, db.works || []),
+          ...enrichCustomer(customer, branchOrders, branchWorks),
           orders: cOrders,
           works: cWorks
         });
@@ -3680,8 +3970,8 @@ const server = http.createServer(async (req, res) => {
           const oldName = customer.name;
           customer.name = input.name.trim();
           if (oldName !== customer.name) {
-            db.orders.forEach(o => { if (o.customerId === customer.id) o.client = customer.name; });
-            (db.works || []).forEach(w => { if (w.customerId === customer.id) w.client = customer.name; });
+            branchOrders.forEach(o => { if (o.customerId === customer.id) o.client = customer.name; });
+            branchWorks.forEach(w => { if (w.customerId === customer.id) w.client = customer.name; });
           }
         }
         if (input.phone !== undefined) customer.phone = input.phone;
@@ -3689,11 +3979,11 @@ const server = http.createServer(async (req, res) => {
         if (input.address !== undefined) customer.address = input.address;
         if (input.note !== undefined) customer.note = input.note;
         await saveDb(db);
-        return sendJson(res, 200, enrichCustomer(customer, db.orders, db.works || []));
+        return sendJson(res, 200, enrichCustomer(customer, branchOrders, branchWorks));
       }
       if (req.method === "DELETE") {
-        db.orders.forEach(o => { if (o.customerId === customer.id) delete o.customerId; });
-        (db.works || []).forEach(w => { if (w.customerId === customer.id) delete w.customerId; });
+        branchOrders.forEach(o => { if (o.customerId === customer.id) delete o.customerId; });
+        branchWorks.forEach(w => { if (w.customerId === customer.id) delete w.customerId; });
         db.customers = db.customers.filter(c => c.id !== customer.id);
         await saveDb(db);
         return sendJson(res, 200, { ok: true });
@@ -3701,12 +3991,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/change-requests") {
       const statusFilter = url.searchParams.get("status");
-      let list = db.orderChanges || [];
+      let list = byBranch(db.orderChanges || []);
       if (statusFilter) {
         list = list.filter(c => c.status === statusFilter);
       }
+      const branchOrders = byBranch(db.orders || []);
       const withOrderInfo = list.map(cr => {
-        const order = db.orders.find(o => o.id === cr.orderId);
+        const order = branchOrders.find(o => o.id === cr.orderId);
         return {
           ...cr,
           orderClient: order ? order.client : "",
@@ -3719,7 +4010,7 @@ const server = http.createServer(async (req, res) => {
     }
     const changeListMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests$/);
     if (changeListMatch) {
-      const order = db.orders.find(item => item.id === changeListMatch[1]);
+      const order = db.orders.find(item => item.id === changeListMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       if (req.method === "GET") {
         const changes = (db.orderChanges || []).filter(c => c.orderId === order.id);
@@ -3790,7 +4081,8 @@ const server = http.createServer(async (req, res) => {
           approvedAt: null,
           rejectedAt: null,
           approver: "",
-          rejectReason: ""
+          rejectReason: "",
+          branchId: order.branchId || branchId
         };
         db.orderChanges.push(changeRequest);
         await saveDb(db);
@@ -3799,7 +4091,7 @@ const server = http.createServer(async (req, res) => {
     }
     const changeApproveMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/([^/]+)\/approve$/);
     if (changeApproveMatch && req.method === "POST") {
-      const order = db.orders.find(item => item.id === changeApproveMatch[1]);
+      const order = db.orders.find(item => item.id === changeApproveMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       const cr = (db.orderChanges || []).find(c => c.id === changeApproveMatch[2]);
       if (!cr) return sendJson(res, 404, { error: "change_request_not_found" });
@@ -3838,15 +4130,17 @@ const server = http.createServer(async (req, res) => {
       }
       const needMaterialRecalc = ["size", "paper", "inkPlan", "mounting"].some(k => k in cr.changes);
       if (needMaterialRecalc && order.materialUsage && order.status !== "已完成" && !order.materialDeducted) {
+        const orderBranchId = order.branchId || branchId;
+        const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
         for (const [matId, qty] of Object.entries(order.materialUsage)) {
-          const mat = db.materials.find(m => m.id === matId);
+          const mat = branchMaterials.find(m => m.id === matId);
           if (mat) {
             mat.reserved = Math.max(0, (mat.reserved || 0) - qty);
           }
         }
         order.materialUsage = estimateMaterialUsage(order);
         for (const [matId, qty] of Object.entries(order.materialUsage)) {
-          const mat = db.materials.find(m => m.id === matId);
+          const mat = branchMaterials.find(m => m.id === matId);
           if (mat) {
             mat.reserved = (mat.reserved || 0) + qty;
           }
@@ -3880,7 +4174,7 @@ const server = http.createServer(async (req, res) => {
     }
     const changeRejectMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/([^/]+)\/reject$/);
     if (changeRejectMatch && req.method === "POST") {
-      const order = db.orders.find(item => item.id === changeRejectMatch[1]);
+      const order = db.orders.find(item => item.id === changeRejectMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
       if (!order) return sendJson(res, 404, { error: "order_not_found" });
       const cr = (db.orderChanges || []).find(c => c.id === changeRejectMatch[2]);
       if (!cr) return sendJson(res, 404, { error: "change_request_not_found" });
@@ -3898,6 +4192,149 @@ const server = http.createServer(async (req, res) => {
       });
       await saveDb(db);
       return sendJson(res, 200, cr);
+    }
+    if (req.method === "GET" && url.pathname === "/api/branches") {
+      return sendJson(res, 200, db.branches || []);
+    }
+    if (req.method === "POST" && url.pathname === "/api/branches") {
+      const input = await body(req);
+      if (!input.name || !input.name.trim()) return sendJson(res, 400, { error: "分店名称不能为空" });
+      const newBranch = {
+        id: "BR-" + Date.now(),
+        name: input.name.trim(),
+        manager: input.manager || "",
+        address: input.address || "",
+        phone: input.phone || "",
+        createdAt: new Date().toISOString(),
+        isDefault: false
+      };
+      if (!db.branches) db.branches = [];
+      db.branches.push(newBranch);
+      if (!db.materials) db.materials = [];
+      if (!db.materialTransactions) db.materialTransactions = [];
+      const now = new Date().toISOString();
+      for (const defMat of DEFAULT_MATERIALS) {
+        const newMat = {
+          ...defMat,
+          id: defMat.id,
+          branchId: newBranch.id,
+          createdAt: now
+        };
+        db.materials.push(newMat);
+        if (newMat.stock > 0) {
+          db.materialTransactions.push({
+            id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            materialId: newMat.id,
+            type: "初始化",
+            quantity: newMat.stock,
+            before: 0,
+            after: newMat.stock,
+            note: "新店初始库存",
+            createdAt: now,
+            branchId: newBranch.id
+          });
+        }
+      }
+      await saveDb(db);
+      return sendJson(res, 201, newBranch);
+    }
+    const branchMatch = url.pathname.match(/^\/api\/branches\/([^/]+)$/);
+    if (branchMatch) {
+      const b = (db.branches || []).find(x => x.id === branchMatch[1]);
+      if (!b) return sendJson(res, 404, { error: "branch_not_found" });
+      if (req.method === "PUT") {
+        const input = await body(req);
+        if (input.name !== undefined) {
+          if (!input.name.trim()) return sendJson(res, 400, { error: "分店名称不能为空" });
+          b.name = input.name.trim();
+        }
+        if (input.manager !== undefined) b.manager = input.manager;
+        if (input.address !== undefined) b.address = input.address;
+        if (input.phone !== undefined) b.phone = input.phone;
+        await saveDb(db);
+        return sendJson(res, 200, b);
+      }
+      if (req.method === "DELETE") {
+        if (b.isDefault) return sendJson(res, 400, { error: "不能删除默认分店" });
+        const bid = b.id;
+        if ((db.orders || []).some(o => (o.branchId || DEFAULT_BRANCH_ID) === bid)) return sendJson(res, 400, { error: "该分店下存在订单，无法删除" });
+        if ((db.customers || []).some(c => (c.branchId || DEFAULT_BRANCH_ID) === bid)) return sendJson(res, 400, { error: "该分店下存在客户，无法删除" });
+        if ((db.works || []).some(w => (w.branchId || DEFAULT_BRANCH_ID) === bid)) return sendJson(res, 400, { error: "该分店下存在作品，无法删除" });
+        db.branches = db.branches.filter(x => x.id !== bid);
+        if (db.materials) db.materials = db.materials.filter(m => (m.branchId || DEFAULT_BRANCH_ID) !== bid);
+        if (db.materialTransactions) db.materialTransactions = db.materialTransactions.filter(t => (t.branchId || DEFAULT_BRANCH_ID) !== bid);
+        if (db.orderChanges) db.orderChanges = db.orderChanges.filter(c => (c.branchId || DEFAULT_BRANCH_ID) !== bid);
+        await saveDb(db);
+        return sendJson(res, 200, { ok: true });
+      }
+    }
+    if (req.method === "GET" && url.pathname === "/api/dashboard/cross-branch") {
+      const period = url.searchParams.get("period") || "week";
+      const customStart = url.searchParams.get("start");
+      const customEnd = url.searchParams.get("end");
+      const today = new Date();
+      const todayStr = toLocalDateString(today);
+      let startDate, endDate;
+      if (period === "week") {
+        const dow = today.getDay();
+        const mondayOffset = dow === 0 ? -6 : 1 - dow;
+        const monday = new Date(today);
+        monday.setDate(today.getDate() + mondayOffset);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        startDate = toLocalDateString(monday);
+        endDate = toLocalDateString(sunday);
+      } else if (period === "month") {
+        startDate = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-01";
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        endDate = toLocalDateString(lastDay);
+      } else {
+        startDate = customStart || todayStr;
+        endDate = customEnd || todayStr;
+      }
+      const filtered = (db.orders || []).filter(o => {
+        const created = o.history && o.history[0] ? toLocalDateString(o.history[0].at) : (o.dueDate || "");
+        return created >= startDate && created <= endDate;
+      });
+      const branches = db.branches || [];
+      const branchSummaries = branches.map(b => {
+        const bOrders = filtered.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === b.id);
+        const completed = bOrders.filter(o => o.status === "已完成");
+        const totalReceivable = bOrders.reduce((s, o) => s + (o.price || 0), 0);
+        const totalReceived = bOrders.reduce((s, o) => {
+          if (o.payments && o.payments.length) return s + o.payments.reduce((ps, p) => ps + p.amount, 0);
+          return s + (o.paid ? (o.price || 0) : 0);
+        }, 0);
+        const overdue = bOrders.filter(o => !o.archived && o.dueDate && o.dueDate < todayStr && o.status !== "已完成");
+        return {
+          branchId: b.id,
+          branchName: b.name,
+          orderCount: bOrders.length,
+          completedCount: completed.length,
+          totalReceivable,
+          totalReceived,
+          overdueCount: overdue.length
+        };
+      });
+      const allOrdersWithBranch = filtered.map(o => {
+        const b = branches.find(br => br.id === (o.branchId || DEFAULT_BRANCH_ID));
+        return { ...o, branchName: b ? b.name : "未知分店" };
+      });
+      return sendJson(res, 200, {
+        period,
+        startDate,
+        endDate,
+        branchSummaries,
+        totalCount: filtered.length,
+        totalCompleted: filtered.filter(o => o.status === "已完成").length,
+        totalReceivable: filtered.reduce((s, o) => s + (o.price || 0), 0),
+        totalReceived: filtered.reduce((s, o) => {
+          if (o.payments && o.payments.length) return s + o.payments.reduce((ps, p) => ps + p.amount, 0);
+          return s + (o.paid ? (o.price || 0) : 0);
+        }, 0),
+        totalOverdue: filtered.filter(o => !o.archived && o.dueDate && o.dueDate < todayStr && o.status !== "已完成").length,
+        allOrders: allOrdersWithBranch
+      });
     }
     sendJson(res, 404, { error: "not_found" });
   } catch (error) {

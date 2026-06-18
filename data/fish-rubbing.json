@@ -8,7 +8,8 @@
       "stock": 50,
       "reserved": 2,
       "threshold": 10,
-      "note": "四尺整纸规格 69x138cm"
+      "note": "四尺整纸规格 69x138cm",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "M-002",
@@ -18,7 +19,8 @@
       "stock": 80,
       "reserved": 0,
       "threshold": 15,
-      "note": "四尺整纸规格 69x138cm"
+      "note": "四尺整纸规格 69x138cm",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "M-003",
@@ -28,7 +30,8 @@
       "stock": 60,
       "reserved": 0,
       "threshold": 15,
-      "note": "四尺整纸规格 69x138cm"
+      "note": "四尺整纸规格 69x138cm",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "M-004",
@@ -38,7 +41,8 @@
       "stock": 500,
       "reserved": 6,
       "threshold": 100,
-      "note": "松烟墨粉"
+      "note": "松烟墨粉",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "M-005",
@@ -48,7 +52,8 @@
       "stock": 100,
       "reserved": 2,
       "threshold": 20,
-      "note": "书画朱砂粉"
+      "note": "书画朱砂粉",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "M-006",
@@ -58,7 +63,8 @@
       "stock": 30,
       "reserved": 2,
       "threshold": 5,
-      "note": "实木轴头，四尺用"
+      "note": "实木轴头，四尺用",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "M-007",
@@ -68,11 +74,216 @@
       "stock": 20,
       "reserved": 0,
       "threshold": 5,
-      "note": "仿红木轴头，四尺用"
+      "note": "仿红木轴头，四尺用",
+      "branchId": "BR-DEFAULT"
+    },
+    {
+      "id": "M-001",
+      "name": "手工楮皮纸",
+      "category": "纸张",
+      "unit": "张",
+      "stock": 50,
+      "reserved": 1,
+      "threshold": 10,
+      "note": "四尺整纸规格 69x138cm",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
+    },
+    {
+      "id": "M-002",
+      "name": "云母宣",
+      "category": "纸张",
+      "unit": "张",
+      "stock": 80,
+      "reserved": 0,
+      "threshold": 15,
+      "note": "四尺整纸规格 69x138cm",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
+    },
+    {
+      "id": "M-003",
+      "name": "净皮宣",
+      "category": "纸张",
+      "unit": "张",
+      "stock": 60,
+      "reserved": 0,
+      "threshold": 15,
+      "note": "四尺整纸规格 69x138cm",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
+    },
+    {
+      "id": "M-004",
+      "name": "墨料",
+      "category": "墨料",
+      "unit": "克",
+      "stock": 500,
+      "reserved": 3,
+      "threshold": 100,
+      "note": "松烟墨粉",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
+    },
+    {
+      "id": "M-005",
+      "name": "朱砂",
+      "category": "朱砂",
+      "unit": "克",
+      "stock": 100,
+      "reserved": 2,
+      "threshold": 20,
+      "note": "书画朱砂粉",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
+    },
+    {
+      "id": "M-006",
+      "name": "装裱轴头(木)",
+      "category": "装裱轴头",
+      "unit": "对",
+      "stock": 30,
+      "reserved": 1,
+      "threshold": 5,
+      "note": "实木轴头，四尺用",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
+    },
+    {
+      "id": "M-007",
+      "name": "装裱轴头(仿红木)",
+      "category": "装裱轴头",
+      "unit": "对",
+      "stock": 20,
+      "reserved": 0,
+      "threshold": 5,
+      "note": "仿红木轴头，四尺用",
+      "branchId": "BR-1781761773956",
+      "createdAt": "2026-06-18T05:49:33.956Z"
     }
   ],
-  "materialTransactions": [],
+  "materialTransactions": [
+    {
+      "id": "TX-1781761773957-sdjo3a",
+      "materialId": "M-001",
+      "type": "初始化",
+      "quantity": 50,
+      "before": 0,
+      "after": 50,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    },
+    {
+      "id": "TX-1781761773957-baxmdx",
+      "materialId": "M-002",
+      "type": "初始化",
+      "quantity": 80,
+      "before": 0,
+      "after": 80,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    },
+    {
+      "id": "TX-1781761773957-svudu3",
+      "materialId": "M-003",
+      "type": "初始化",
+      "quantity": 60,
+      "before": 0,
+      "after": 60,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    },
+    {
+      "id": "TX-1781761773957-0qcou7",
+      "materialId": "M-004",
+      "type": "初始化",
+      "quantity": 500,
+      "before": 0,
+      "after": 500,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    },
+    {
+      "id": "TX-1781761773957-nhq4wp",
+      "materialId": "M-005",
+      "type": "初始化",
+      "quantity": 100,
+      "before": 0,
+      "after": 100,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    },
+    {
+      "id": "TX-1781761773957-1nbkn7",
+      "materialId": "M-006",
+      "type": "初始化",
+      "quantity": 30,
+      "before": 0,
+      "after": 30,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    },
+    {
+      "id": "TX-1781761773957-h9d28b",
+      "materialId": "M-007",
+      "type": "初始化",
+      "quantity": 20,
+      "before": 0,
+      "after": 20,
+      "note": "新店初始库存",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "branchId": "BR-1781761773956"
+    }
+  ],
   "orders": [
+    {
+      "id": "FT-1781761797860",
+      "client": "测试客户2",
+      "fishSpecies": "鲤鱼",
+      "size": "80x40cm",
+      "paper": "手工楮皮纸",
+      "inkPlan": "浓墨鱼身，朱砂题款",
+      "mounting": "立轴",
+      "inscription": "测试题字",
+      "owner": "测试负责人",
+      "price": 2000,
+      "dueDate": "2026-06-30",
+      "paid": false,
+      "payments": [],
+      "status": "待拓印",
+      "tasks": [
+        {
+          "id": "T-1781761797860-1",
+          "stage": "待拓印",
+          "assignee": "测试负责人",
+          "date": "2026-06-18",
+          "note": "新委托接单",
+          "completed": false,
+          "createdAt": "2026-06-18T05:49:57.860Z",
+          "updatedAt": "2026-06-18T05:49:57.860Z"
+        }
+      ],
+      "materialUsage": {
+        "M-001": 1,
+        "M-004": 3,
+        "M-005": 2,
+        "M-006": 1
+      },
+      "history": [
+        {
+          "at": "2026-06-18T05:49:57.860Z",
+          "stage": "待拓印",
+          "note": "新委托接单"
+        }
+      ],
+      "branchId": "BR-1781761773956"
+    },
     {
       "id": "FT-2601",
       "client": "沈钧",
@@ -180,7 +391,8 @@
           "approvedAt": "2026-06-17T13:42:04.507Z",
           "approver": "测试员"
         }
-      ]
+      ],
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "FT-2600",
@@ -283,7 +495,8 @@
         }
       ],
       "customerId": "C-1781693865584-dqi3",
-      "changeHistory": []
+      "changeHistory": [],
+      "branchId": "BR-DEFAULT"
     }
   ],
   "works": [
@@ -299,7 +512,8 @@
       "inscription": "烟波钓徒",
       "owner": "阿青",
       "completedAt": "2026-05-20T10:00:00.000Z",
-      "customerId": "C-1781693865585-91lw"
+      "customerId": "C-1781693865585-91lw",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "W-002",
@@ -313,7 +527,8 @@
       "inscription": "海阔凭鱼跃",
       "owner": "阿青",
       "completedAt": "2026-05-15T15:30:00.000Z",
-      "customerId": "C-1781693865585-hh9x"
+      "customerId": "C-1781693865585-hh9x",
+      "branchId": "BR-DEFAULT"
     }
   ],
   "_materialMigrated": true,
@@ -325,7 +540,8 @@
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T10:57:45.536Z"
+      "createdAt": "2026-06-17T10:57:45.536Z",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "C-1781693865584-dqi3",
@@ -334,7 +550,8 @@
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T10:57:45.585Z"
+      "createdAt": "2026-06-17T10:57:45.585Z",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "C-1781693865585-91lw",
@@ -343,7 +560,8 @@
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T10:57:45.585Z"
+      "createdAt": "2026-06-17T10:57:45.585Z",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "C-1781693865585-hh9x",
@@ -352,7 +570,18 @@
       "wechat": "",
       "address": "",
       "note": "",
-      "createdAt": "2026-06-17T10:57:45.585Z"
+      "createdAt": "2026-06-17T10:57:45.585Z",
+      "branchId": "BR-DEFAULT"
+    },
+    {
+      "id": "C-1781759806721",
+      "name": "测试客户",
+      "phone": "",
+      "wechat": "",
+      "address": "",
+      "note": "",
+      "createdAt": "2026-06-18T05:16:46.721Z",
+      "branchId": "BR-1781759806634"
     }
   ],
   "_customerMigrated": true,
@@ -375,7 +604,8 @@
       "approvedAt": "2026-06-17T13:42:04.507Z",
       "rejectedAt": null,
       "approver": "测试员",
-      "rejectReason": ""
+      "rejectReason": "",
+      "branchId": "BR-DEFAULT"
     },
     {
       "id": "CR-1781704341139",
@@ -394,8 +624,39 @@
       "approvedAt": null,
       "rejectedAt": null,
       "approver": "",
-      "rejectReason": ""
+      "rejectReason": "",
+      "branchId": "BR-DEFAULT"
     }
   ],
-  "_changeRequestMigrated": true
+  "_changeRequestMigrated": true,
+  "branches": [
+    {
+      "id": "BR-DEFAULT",
+      "name": "总店（默认）",
+      "manager": "",
+      "address": "",
+      "phone": "",
+      "createdAt": "2026-06-18T05:11:15.728Z",
+      "isDefault": true
+    },
+    {
+      "id": "BR-1781759806634",
+      "name": "测试分店",
+      "manager": "",
+      "address": "",
+      "phone": "",
+      "createdAt": "2026-06-18T05:16:46.634Z",
+      "isDefault": false
+    },
+    {
+      "id": "BR-1781761773956",
+      "name": "测试分店2",
+      "manager": "测试负责人",
+      "address": "测试地址",
+      "phone": "13800138000",
+      "createdAt": "2026-06-18T05:49:33.956Z",
+      "isDefault": false
+    }
+  ],
+  "_branchMigrated": true
 }
