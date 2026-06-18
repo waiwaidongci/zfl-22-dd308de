@@ -433,6 +433,10 @@ function page() {
     .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
     .toolbar select { width:auto; min-width:150px; }
     .toolbar .spacer { flex:1; }
+    .order-filters { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; align-items:center; }
+    .order-filters select { width:auto; min-width:140px; padding:7px 10px; }
+    .order-filters input[type="date"] { width:auto; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+    .order-filters .search-box { flex-shrink:0; }
     .stat-total { grid-column:span 5; text-align:center; background:var(--accent); color:#fff; }
     .stat-total strong { color:#fff; }
     .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
@@ -726,7 +730,7 @@ function page() {
     .conflict-box .conflict-field:last-child { border-bottom:none; }
     .conflict-box .field-name { color:var(--muted); }
     .offline-tip { background:#fff7e6; border:1px solid #ffe58f; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#8a6d3b; display:flex; align-items:center; gap:8px; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } .sync-stats { grid-template-columns:1fr 1; } .conflict-side-by-side { grid-template-columns:1fr; } }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } .sync-stats { grid-template-columns:1fr 1; } .conflict-side-by-side { grid-template-columns:1fr; } .order-filters { flex-direction:column; align-items:stretch; } .order-filters select, .order-filters input, .order-filters .search-box { width:100%; min-width:0; } }
   </style>
 </head>
 <body>
@@ -796,7 +800,25 @@ function page() {
         </form>
         <section>
           <div class="stats" id="stats"></div>
-          <div class="toolbar"><select id="filter"></select></div>
+          <div class="order-filters">
+            <div class="search-box" style="width:220px;">
+              <input id="order-search" placeholder="搜索客户/鱼种/编号">
+            </div>
+            <select id="filter-status"><option value="">全部状态</option></select>
+            <select id="filter-client"><option value="">全部客户</option></select>
+            <select id="order-filter-species"><option value="">全部鱼种</option></select>
+            <select id="filter-owner"><option value="">全部负责人</option></select>
+            <select id="filter-paid">
+              <option value="">全部收款状态</option>
+              <option value="full">已收款</option>
+              <option value="partial">部分收款</option>
+              <option value="none">未收款</option>
+            </select>
+            <input type="date" id="filter-due-start" title="交付日期起">
+            <span style="color:var(--muted);font-size:13px;">至</span>
+            <input type="date" id="filter-due-end" title="交付日期止">
+            <button class="secondary" id="order-filter-reset" style="padding:8px 14px;font-size:13px;">重置筛选</button>
+          </div>
           <div class="grid" id="orders"></div>
         </section>
       </div>
@@ -1229,6 +1251,61 @@ function page() {
     let isOnline = true;
     let isSyncing = false;
     let syncAutoTimer = null;
+
+    const ORDER_FILTERS_KEY = "zfl_order_filters";
+    let orderFilters = {
+      search: "",
+      status: "",
+      client: "",
+      species: "",
+      owner: "",
+      paid: "",
+      dueStart: "",
+      dueEnd: ""
+    };
+
+    function saveOrderFilters() {
+      try {
+        localStorage.setItem(ORDER_FILTERS_KEY, JSON.stringify(orderFilters));
+      } catch (e) {}
+    }
+
+    function loadOrderFilters() {
+      try {
+        const saved = localStorage.getItem(ORDER_FILTERS_KEY);
+        if (saved) {
+          orderFilters = { ...orderFilters, ...JSON.parse(saved) };
+        }
+      } catch (e) {}
+    }
+
+    function applyOrderFiltersToUI() {
+      const el = (id) => document.querySelector(id);
+      if (el("#order-search")) el("#order-search").value = orderFilters.search;
+      if (el("#filter-status")) el("#filter-status").value = orderFilters.status;
+      if (el("#filter-client")) el("#filter-client").value = orderFilters.client;
+      if (el("#order-filter-species")) el("#order-filter-species").value = orderFilters.species;
+      if (el("#filter-owner")) el("#filter-owner").value = orderFilters.owner;
+      if (el("#filter-paid")) el("#filter-paid").value = orderFilters.paid;
+      if (el("#filter-due-start")) el("#filter-due-start").value = orderFilters.dueStart;
+      if (el("#filter-due-end")) el("#filter-due-end").value = orderFilters.dueEnd;
+    }
+
+    function resetOrderFilters() {
+      orderFilters = {
+        search: "",
+        status: "",
+        client: "",
+        species: "",
+        owner: "",
+        paid: "",
+        dueStart: "",
+        dueEnd: ""
+      };
+      saveOrderFilters();
+      applyOrderFiltersToUI();
+      renderOrders();
+    }
 
     const OFFLINE_QUEUE_KEY = "zfl_offline_queue";
     const OFFLINE_CACHE_KEY = "zfl_offline_cache";
@@ -1797,6 +1874,36 @@ function page() {
       return { text: "未收款", cls: "none", paidTotal: 0, unpaid: price };
     }
 
+    function applyOrderFiltersToList(list) {
+      const f = orderFilters;
+      return list.filter(o => {
+        if (f.status && o.status !== f.status) return false;
+        if (f.client && o.client !== f.client) return false;
+        if (f.species && o.fishSpecies !== f.species) return false;
+        if (f.owner && o.owner !== f.owner) return false;
+        if (f.paid) {
+          const pi = getPaidInfo(o);
+          if (f.paid === "full" && pi.cls !== "full") return false;
+          if (f.paid === "partial" && pi.cls !== "partial") return false;
+          if (f.paid === "none" && pi.cls !== "none") return false;
+        }
+        if (f.dueStart && o.dueDate && o.dueDate < f.dueStart) return false;
+        if (f.dueEnd && o.dueDate && o.dueDate > f.dueEnd) return false;
+        if (f.search) {
+          const kw = f.search.trim().toLowerCase();
+          if (kw) {
+            const matchClient = (o.client || "").toLowerCase().includes(kw);
+            const matchSpecies = (o.fishSpecies || "").toLowerCase().includes(kw);
+            const matchId = (o.id || "").toLowerCase().includes(kw);
+            const matchOwner = (o.owner || "").toLowerCase().includes(kw);
+            const matchInscription = (o.inscription || "").toLowerCase().includes(kw);
+            if (!matchClient && !matchSpecies && !matchId && !matchOwner && !matchInscription) return false;
+          }
+        }
+        return true;
+      });
+    }
+
     function renderOrders() {
       const formEl = document.querySelector("#form");
       if (formEl) formEl.style.display = currentBranchId === "__all__" ? "none" : "";
@@ -1806,13 +1913,57 @@ function page() {
         + customers.map(c => '<option value="'+c.id+'">'+c.name+(c.phone?' · '+c.phone:'')+'</option>').join("");
       customerSelect.value = prevCustomer;
 
-      const filter = document.querySelector("#filter");
+      const statusFilter = document.querySelector("#filter-status");
+      const clientFilter = document.querySelector("#filter-client");
+      const speciesFilter = document.querySelector("#order-filter-species");
+      const ownerFilter = document.querySelector("#filter-owner");
       const statsEl = document.querySelector("#stats");
       const ordersEl = document.querySelector("#orders");
-      filter.innerHTML = '<option value="">全部状态</option>' + stages.map(s => '<option>'+s+'</option>').join("");
-      const counts = Object.fromEntries(stages.map(s => [s, orders.filter(o => o.status === s).length]));
+
+      if (statusFilter) {
+        const prev = statusFilter.value || orderFilters.status;
+        statusFilter.innerHTML = '<option value="">全部状态</option>' + stages.map(s => '<option>'+s+'</option>').join("");
+        statusFilter.value = prev;
+        orderFilters.status = prev;
+      }
+      if (clientFilter) {
+        const prev = clientFilter.value || orderFilters.client;
+        const clientSet = [...new Set(orders.map(o => o.client).filter(Boolean))].sort();
+        clientFilter.innerHTML = '<option value="">全部客户</option>' + clientSet.map(c => '<option>'+c+'</option>').join("");
+        clientFilter.value = prev;
+        orderFilters.client = prev;
+      }
+      if (speciesFilter) {
+        const prev = speciesFilter.value || orderFilters.species;
+        const speciesSet = [...new Set(orders.map(o => o.fishSpecies).filter(Boolean))].sort();
+        speciesFilter.innerHTML = '<option value="">全部鱼种</option>' + speciesSet.map(s => '<option>'+s+'</option>').join("");
+        speciesFilter.value = prev;
+        orderFilters.species = prev;
+      }
+      if (ownerFilter) {
+        const prev = ownerFilter.value || orderFilters.owner;
+        const ownerSet = [...new Set(orders.map(o => o.owner).filter(Boolean))].sort();
+        ownerFilter.innerHTML = '<option value="">全部负责人</option>' + ownerSet.map(o => '<option>'+o+'</option>').join("");
+        ownerFilter.value = prev;
+        orderFilters.owner = prev;
+      }
+      if (document.querySelector("#filter-paid")) {
+        document.querySelector("#filter-paid").value = orderFilters.paid;
+      }
+      if (document.querySelector("#filter-due-start")) {
+        document.querySelector("#filter-due-start").value = orderFilters.dueStart;
+      }
+      if (document.querySelector("#filter-due-end")) {
+        document.querySelector("#filter-due-end").value = orderFilters.dueEnd;
+      }
+      if (document.querySelector("#order-search")) {
+        document.querySelector("#order-search").value = orderFilters.search;
+      }
+
+      const filtered = applyOrderFiltersToList(orders);
+      const counts = Object.fromEntries(stages.map(s => [s, filtered.filter(o => o.status === s).length]));
       statsEl.innerHTML = stages.map(s => '<div class="stat"><span>'+s+'</span><strong>'+counts[s]+'</strong></div>').join("");
-      const list = filter.value ? orders.filter(o => o.status === filter.value) : orders;
+      const list = filtered;
       ordersEl.innerHTML = list.map(o => {
         const canArchive = o.status === "已完成" && !o.archived;
         const archiveBtn = o.status === "已完成"
@@ -3495,6 +3646,8 @@ function page() {
         }
       }
       await applyAllOfflineOperationsToLocal();
+      loadOrderFilters();
+      applyOrderFiltersToUI();
       renderOrders();
       renderWorks();
       renderCustomers();
@@ -3563,7 +3716,85 @@ function page() {
       }
     });
 
-    document.querySelector("#filter").onchange = renderOrders;
+    function bindOrderFilterEvents() {
+      const searchEl = document.querySelector("#order-search");
+      const statusEl = document.querySelector("#filter-status");
+      const clientEl = document.querySelector("#filter-client");
+      const speciesEl = document.querySelector("#order-filter-species");
+      const ownerEl = document.querySelector("#filter-owner");
+      const paidEl = document.querySelector("#filter-paid");
+      const dueStartEl = document.querySelector("#filter-due-start");
+      const dueEndEl = document.querySelector("#filter-due-end");
+      const resetEl = document.querySelector("#order-filter-reset");
+
+      let searchTimer = null;
+      if (searchEl) {
+        searchEl.addEventListener("input", () => {
+          clearTimeout(searchTimer);
+          searchTimer = setTimeout(() => {
+            orderFilters.search = searchEl.value;
+            saveOrderFilters();
+            renderOrders();
+          }, 200);
+        });
+      }
+      if (statusEl) {
+        statusEl.addEventListener("change", () => {
+          orderFilters.status = statusEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (clientEl) {
+        clientEl.addEventListener("change", () => {
+          orderFilters.client = clientEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (speciesEl) {
+        speciesEl.addEventListener("change", () => {
+          orderFilters.species = speciesEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (ownerEl) {
+        ownerEl.addEventListener("change", () => {
+          orderFilters.owner = ownerEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (paidEl) {
+        paidEl.addEventListener("change", () => {
+          orderFilters.paid = paidEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (dueStartEl) {
+        dueStartEl.addEventListener("change", () => {
+          orderFilters.dueStart = dueStartEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (dueEndEl) {
+        dueEndEl.addEventListener("change", () => {
+          orderFilters.dueEnd = dueEndEl.value;
+          saveOrderFilters();
+          renderOrders();
+        });
+      }
+      if (resetEl) {
+        resetEl.addEventListener("click", () => {
+          resetOrderFilters();
+        });
+      }
+    }
+    bindOrderFilterEvents();
+
     document.querySelector("#filter-species").onchange = renderWorks;
     document.querySelector("#filter-mounting").onchange = renderWorks;
     document.querySelector("#reload").onclick = load;
