@@ -78,6 +78,16 @@ function formatPaymentRecord(payment) {
   return `${payment.type || "收款"} ¥${Number(payment.amount || 0)} · ${payment.paidAt || "-"}${payment.note ? ` · ${payment.note}` : ""}`;
 }
 
+function toLocalDateString(value = new Date()) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const seed = {
   materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)),
   materialTransactions: [],
@@ -3115,7 +3125,7 @@ const server = http.createServer(async (req, res) => {
       const customStart = url.searchParams.get("start");
       const customEnd = url.searchParams.get("end");
       const today = new Date();
-      const todayStr = today.toISOString().slice(0, 10);
+      const todayStr = toLocalDateString(today);
       let startDate, endDate;
       if (period === "week") {
         const dow = today.getDay();
@@ -3124,18 +3134,18 @@ const server = http.createServer(async (req, res) => {
         monday.setDate(today.getDate() + mondayOffset);
         const sunday = new Date(monday);
         sunday.setDate(monday.getDate() + 6);
-        startDate = monday.toISOString().slice(0, 10);
-        endDate = sunday.toISOString().slice(0, 10);
+        startDate = toLocalDateString(monday);
+        endDate = toLocalDateString(sunday);
       } else if (period === "month") {
         startDate = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-01";
         const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        endDate = lastDay.toISOString().slice(0, 10);
+        endDate = toLocalDateString(lastDay);
       } else {
         startDate = customStart || todayStr;
         endDate = customEnd || todayStr;
       }
       const filtered = db.orders.filter(o => {
-        const created = o.history && o.history[0] ? o.history[0].at.slice(0, 10) : (o.dueDate || "");
+        const created = o.history && o.history[0] ? toLocalDateString(o.history[0].at) : (o.dueDate || "");
         return created >= startDate && created <= endDate;
       });
       const orderCount = filtered.length;
@@ -3163,9 +3173,9 @@ const server = http.createServer(async (req, res) => {
       });
       const ownerWorkload = {};
       filtered.forEach(o => {
-        if (!ownerWorkload[o.owner]) ownerWorkload[o.owner] = { 
-          orderCount: 0, 
-          taskCount: 0, 
+        if (!ownerWorkload[o.owner]) ownerWorkload[o.owner] = {
+          orderCount: 0,
+          taskCount: 0,
           completedTaskCount: 0,
           totalAmount: 0,
           receivedAmount: 0
