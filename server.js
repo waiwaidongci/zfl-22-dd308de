@@ -13,6 +13,27 @@ const DEFAULT_BRANCH_ID = "BR-DEFAULT";
 const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
 const scheduleStages = ["待拓印", "晾干中", "装裱中", "待取件"];
 const MAX_TASKS_PER_DAY = 5;
+const DUE_DATE_WARNING_DAYS = 3;
+const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+function getWeekRange(refDate = new Date()) {
+  const date = new Date(refDate);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(date.setDate(diff));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dayNum = String(d.getDate()).padStart(2, "0");
+    days.push(y + "-" + m + "-" + dayNum);
+  }
+  return { start: days[0], end: days[6], days };
+}
 
 const MATERIAL_CATEGORIES = {
   PAPER: "纸张",
@@ -675,7 +696,51 @@ function page() {
     .cross-branch-table td { padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line); }
     .cross-branch-table tr:last-child td { border-bottom:none; }
     .tab.disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } }
+    .view-toggle { display:inline-flex; border:2px solid var(--line); border-radius:6px; overflow:hidden; margin-right:12px; }
+    .view-toggle button { padding:6px 14px; border:none; background:transparent; color:var(--muted); font-weight:600; cursor:pointer; font-size:13px; }
+    .view-toggle button.active { background:var(--accent); color:#fff; }
+    .view-toggle button:hover:not(.active) { color:var(--accent); }
+    #sch-week-nav { display:flex; align-items:center; gap:8px; }
+    #sch-week-nav button { padding:6px 12px; }
+    #sch-week-label { font-weight:600; font-size:14px; color:var(--ink); padding:0 8px; }
+    .warnings-summary { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+    .warn-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+    .warn-chip.overload { background:#fff7e6; color:#d48806; border:1px solid #ffe58f; }
+    .warn-chip.due { background:#fce4e4; color:#9b2c2c; border:1px solid #f8b4b4; }
+    .warn-chip.prereq { background:#f3e8ff; color:#6b21a8; border:1px solid #d8b4fe; }
+    .week-board { display:grid; gap:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
+    .week-header-row { display:grid; grid-template-columns:70px repeat(4, minmax(0,1fr)); background:var(--bg); border-bottom:1px solid var(--line); }
+    .week-header-cell { padding:10px 12px; font-weight:600; text-align:center; color:var(--muted); font-size:13px; border-left:1px solid var(--line); }
+    .week-header-cell:first-child { border-left:none; }
+    .week-day-row { display:grid; grid-template-columns:70px repeat(4, minmax(0,1fr)); border-bottom:1px solid var(--line); }
+    .week-day-row:last-child { border-bottom:none; }
+    .week-day-header { padding:8px; text-align:center; border-right:1px solid var(--line); background:var(--bg); }
+    .week-day-header.today { background:#e6f2ed; }
+    .week-day-header .weekday { font-size:11px; color:var(--muted); font-weight:600; }
+    .week-day-header .date { font-size:14px; font-weight:700; color:var(--ink); }
+    .week-day-header.today .date { color:var(--accent); }
+    .week-day-header .overload-badge { display:inline-block; margin-top:4px; padding:1px 6px; background:#fff7e6; color:#d48806; border-radius:999px; font-size:10px; font-weight:600; }
+    .week-cell { padding:6px; min-height:80px; border-left:1px solid var(--line); background:#fff; position:relative; }
+    .week-cell.drag-over { background:#e6f2ed; }
+    .week-cell .cell-count { position:absolute; top:4px; right:6px; font-size:10px; color:var(--muted); font-weight:600; }
+    .week-task-list { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+    .week-task { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:12px; cursor:grab; position:relative; }
+    .week-task.dragging { opacity:.5; }
+    .week-task.completed { opacity:.5; }
+    .wt-title { font-weight:600; color:var(--ink); margin-bottom:2px; }
+    .wt-meta { display:flex; gap:6px; flex-wrap:wrap; font-size:11px; color:var(--muted); }
+    .wt-assignee { background:#e6f2ed; color:var(--accent); padding:1px 6px; border-radius:4px; font-weight:600; }
+    .task-warnings { position:absolute; top:-6px; right:-6px; display:flex; gap:2px; }
+    .task-warning-badge { width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; }
+    .tw-overload { background:#d48806; }
+    .tw-due { background:#9b2c2c; }
+    .tw-due.overdue { animation:pulse 1.5s infinite; }
+    .tw-prereq { background:#6b21a8; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.6; } }
+    .week-task .due-label { font-size:10px; font-weight:700; margin-left:auto; }
+    .week-task .due-label.due { color:#9b2c2c; }
+    .week-task .due-label.overdue { color:#9b2c2c; animation:pulse 1.5s infinite; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } .week-day-row { grid-template-columns:50px repeat(4, minmax(0,1fr)); } .week-header-row { grid-template-columns:50px repeat(4, minmax(0,1fr)); } .week-day-header { padding:4px; } .week-day-header .date { font-size:12px; } .week-header-cell { font-size:11px; padding:6px; } .week-cell { padding:4px; min-height:60px; } .week-task { font-size:11px; padding:4px 6px; } }
   </style>
 </head>
 <body>
@@ -746,11 +811,20 @@ function page() {
 
     <div class="tab-content" id="tab-schedule">
       <div class="schedule-toolbar">
-        <div class="schedule-date-nav">
+        <div class="view-toggle" id="sch-view-toggle">
+          <button data-view="day" class="active">日视图</button>
+          <button data-view="week">周视图</button>
+        </div>
+        <div class="schedule-date-nav" id="sch-day-nav">
           <button id="sch-prev-day">‹ 前一天</button>
           <input type="date" id="sch-date">
           <button id="sch-today">今天</button>
           <button id="sch-next-day">后一天 ›</button>
+        </div>
+        <div id="sch-week-nav" style="display:none;">
+          <button id="sch-prev-week">‹ 上一周</button>
+          <span id="sch-week-label"></span>
+          <button id="sch-next-week">下一周 ›</button>
         </div>
         <div class="schedule-filters">
           <select id="sch-assignee-filter">
@@ -763,8 +837,10 @@ function page() {
         </div>
         <div class="schedule-stats" id="sch-stats"></div>
       </div>
+      <div class="warnings-summary" id="sch-warnings-summary" style="display:none;"></div>
       <div class="schedule-warning" id="sch-warning" style="display:none;"></div>
       <div class="schedule-board" id="sch-board"></div>
+      <div class="week-board" id="sch-week-board" style="display:none;"></div>
     </div>
 
     <div class="tab-content" id="tab-calendar">
@@ -1121,6 +1197,8 @@ function page() {
     let currentMonth = new Date().getMonth() + 1;
     let editingCustomerId = null;
     let currentScheduleDate = new Date().toISOString().slice(0, 10);
+    let scheduleViewMode = "day";
+    let weekScheduleData = null;
     let scheduleAssigneeFilter = "";
     let showCompletedTasks = true;
     let editingTask = null;
@@ -2192,6 +2270,19 @@ function page() {
       const statsEl = document.querySelector("#sch-stats");
       const warningEl = document.querySelector("#sch-warning");
       const boardEl = document.querySelector("#sch-board");
+      const weekBoardEl = document.querySelector("#sch-week-board");
+      const dayNav = document.querySelector("#sch-day-nav");
+      const weekNav = document.querySelector("#sch-week-nav");
+      const viewToggle = document.querySelectorAll("#sch-view-toggle button");
+
+      viewToggle.forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.view === scheduleViewMode);
+      });
+
+      if (dayNav) dayNav.style.display = scheduleViewMode === "day" ? "" : "none";
+      if (weekNav) weekNav.style.display = scheduleViewMode === "week" ? "" : "none";
+      if (boardEl) boardEl.style.display = scheduleViewMode === "day" ? "" : "none";
+      if (weekBoardEl) weekBoardEl.style.display = scheduleViewMode === "week" ? "" : "none";
 
       if (dateInput) dateInput.value = currentScheduleDate;
       if (assigneeFilter) {
@@ -2201,6 +2292,11 @@ function page() {
         assigneeFilter.value = prevVal || scheduleAssigneeFilter;
       }
       if (showCompleted) showCompleted.checked = showCompletedTasks;
+
+      if (scheduleViewMode === "week") {
+        renderWeekSchedule();
+        return;
+      }
 
       const filteredTasks = scheduleTasks.filter(t => {
         if (!showCompletedTasks && t.completed) return false;
@@ -2287,6 +2383,227 @@ function page() {
       }
     }
 
+    function getWeekRangeJS(refDate) {
+      const date = new Date(refDate);
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(date.setDate(diff));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const days = [];
+      const fmt = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const dayNum = String(d.getDate()).padStart(2, "0");
+        return y + "-" + m + "-" + dayNum;
+      };
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        days.push(fmt(d));
+      }
+      return { start: days[0], end: days[6], days };
+    }
+
+    async function loadWeekSchedule() {
+      let url = "/api/schedule/week?date=" + currentScheduleDate;
+      if (scheduleAssigneeFilter) url += "&assignee=" + encodeURIComponent(scheduleAssigneeFilter);
+      weekScheduleData = await api(url);
+      renderSchedule();
+    }
+
+    function findScheduleTask(taskId, orderId) {
+      if (scheduleViewMode === "week" && weekScheduleData) {
+        return weekScheduleData.tasks.find(t => t.id === taskId && t.orderId === orderId);
+      }
+      return scheduleTasks.find(t => t.id === taskId && t.orderId === orderId);
+    }
+
+    function renderWeekSchedule() {
+      if (!weekScheduleData) return;
+      const { week, weekdayLabels, tasks, warnings, today } = weekScheduleData;
+      const weekLabel = document.querySelector("#sch-week-label");
+      const startParts = week.start.split("-");
+      const endParts = week.end.split("-");
+      if (weekLabel) {
+        weekLabel.textContent = startParts[0] + "年" + startParts[1] + "月" + startParts[2] + "日 - " + endParts[1] + "月" + endParts[2] + "日";
+      }
+
+      const filteredTasks = tasks.filter(t => {
+        if (!showCompletedTasks && t.completed) return false;
+        return true;
+      });
+
+      const warningsSummaryEl = document.querySelector("#sch-warnings-summary");
+      const warningEl = document.querySelector("#sch-warning");
+      if (warningsSummaryEl) {
+        const hasOverload = warnings.overloaded.length > 0;
+        const hasDue = warnings.dueSoon.length > 0;
+        const hasPrereq = warnings.prereqMissing.length > 0;
+        if (hasOverload || hasDue || hasPrereq) {
+          warningsSummaryEl.style.display = "flex";
+          let summaryHtml = "";
+          if (hasOverload) {
+            summaryHtml += '<span class="warn-chip overload">⚠️ 任务过载 ' + warnings.overloaded.length + ' 人</span>';
+          }
+          if (hasDue) {
+            const overdueCount = warnings.dueSoon.filter(w => w.isOverdue).length;
+            const dueCount = warnings.dueSoon.filter(w => !w.isOverdue).length;
+            summaryHtml += '<span class="warn-chip due">⏰ 临期 ' + dueCount + ' 个' + (overdueCount > 0 ? '，逾期 ' + overdueCount + ' 个' : '') + '</span>';
+          }
+          if (hasPrereq) {
+            summaryHtml += '<span class="warn-chip prereq">🔗 前置未完成 ' + warnings.prereqMissing.length + ' 个</span>';
+          }
+          warningsSummaryEl.innerHTML = summaryHtml;
+        } else {
+          warningsSummaryEl.style.display = "none";
+        }
+      }
+      if (warningEl) warningEl.style.display = "none";
+
+      const warningsMap = {};
+      warnings.overloaded.forEach(w => {
+        w.taskIds.forEach(tid => {
+          if (!warningsMap[tid]) warningsMap[tid] = [];
+          warningsMap[tid].push({ ...w, badgeType: "overload" });
+        });
+      });
+      warnings.dueSoon.forEach(w => {
+        if (!warningsMap[w.taskId]) warningsMap[w.taskId] = [];
+        warningsMap[w.taskId].push({ ...w, badgeType: "due" });
+      });
+      warnings.prereqMissing.forEach(w => {
+        if (!warningsMap[w.taskId]) warningsMap[w.taskId] = [];
+        warningsMap[w.taskId].push({ ...w, badgeType: "prereq" });
+      });
+
+      const overloadByDate = {};
+      warnings.overloaded.forEach(w => {
+        if (!overloadByDate[w.date]) overloadByDate[w.date] = [];
+        overloadByDate[w.date].push(w);
+      });
+
+      const statsEl = document.querySelector("#sch-stats");
+      if (statsEl) {
+        const totalTasks = filteredTasks.length;
+        const completedTasks = filteredTasks.filter(t => t.completed).length;
+        const assigneeCount = [...new Set(filteredTasks.map(t => t.assignee))].length;
+        statsEl.innerHTML = '<div>总任务 <strong>'+totalTasks+'</strong></div>'
+          + '<div>已完成 <strong>'+completedTasks+'</strong></div>'
+          + '<div>参与负责人 <strong>'+assigneeCount+'</strong></div>';
+      }
+
+      const weekBoardEl = document.querySelector("#sch-week-board");
+      if (!weekBoardEl) return;
+
+      const isAllView = currentBranchId === "__all__";
+      let html = '<div class="week-header-row">'
+        + '<div class="week-header-cell">日期</div>'
+        + scheduleStages.map(s => '<div class="week-header-cell">' + s + '</div>').join("")
+        + '</div>';
+
+      for (let i = 0; i < 7; i++) {
+        const dateStr = week.days[i];
+        const isToday = dateStr === today;
+        const dayOverloads = overloadByDate[dateStr] || [];
+        const dateParts = dateStr.split("-");
+
+        html += '<div class="week-day-row">'
+          + '<div class="week-day-header' + (isToday ? ' today' : '') + '">'
+          + '<div class="weekday">' + weekdayLabels[i] + '</div>'
+          + '<div class="date">' + dateParts[1] + '-' + dateParts[2] + '</div>'
+          + (dayOverloads.length > 0 ? '<div class="overload-badge">' + dayOverloads.length + '人过载</div>' : '')
+          + '</div>';
+
+        for (const stage of scheduleStages) {
+          const cellTasks = filteredTasks.filter(t => t.date === dateStr && t.stage === stage);
+          html += '<div class="week-cell" data-date="' + dateStr + '" data-stage="' + stage + '">'
+            + '<span class="cell-count">' + cellTasks.length + '</span>'
+            + '<div class="week-task-list">';
+          cellTasks.forEach(task => {
+            html += renderWeekTaskCard(task, warningsMap, isAllView);
+          });
+          html += '</div></div>';
+        }
+        html += '</div>';
+      }
+
+      weekBoardEl.innerHTML = html;
+
+      weekBoardEl.querySelectorAll(".week-task").forEach(el => {
+        el.addEventListener("dragstart", handleDragStart);
+        el.addEventListener("dragend", handleDragEnd);
+      });
+
+      weekBoardEl.querySelectorAll(".week-cell").forEach(el => {
+        el.addEventListener("dragover", handleDragOver);
+        el.addEventListener("dragleave", handleDragLeave);
+        el.addEventListener("drop", handleDrop);
+      });
+
+      weekBoardEl.querySelectorAll(".week-task-list").forEach(el => {
+        el.addEventListener("dragover", handleDragOver);
+        el.addEventListener("dragleave", handleDragLeave);
+        el.addEventListener("drop", handleDrop);
+      });
+
+      weekBoardEl.querySelectorAll("[data-edit-task]").forEach(btn => {
+        btn.onclick = () => openTaskModal(btn.dataset.editTask, btn.dataset.orderId);
+      });
+
+      weekBoardEl.querySelectorAll("[data-toggle-task]").forEach(btn => {
+        btn.onclick = () => toggleTaskComplete(btn.dataset.toggleTask, btn.dataset.orderId);
+      });
+
+      weekBoardEl.querySelectorAll("[data-delete-task]").forEach(btn => {
+        btn.onclick = () => openDeleteModal(btn.dataset.deleteTask, btn.dataset.orderId);
+      });
+    }
+
+    function renderWeekTaskCard(task, warningsMap, isAllView) {
+      const cls = task.completed ? "week-task completed" : "week-task";
+      const toggleText = task.completed ? "恢复" : "完成";
+      const taskWarnings = warningsMap[task.id] || [];
+      const hasOverload = taskWarnings.some(w => w.badgeType === "overload");
+      const dueWarning = taskWarnings.find(w => w.badgeType === "due");
+      const hasPrereq = taskWarnings.some(w => w.badgeType === "prereq");
+
+      let badgesHtml = '<div class="task-warnings">';
+      if (hasOverload) badgesHtml += '<span class="task-warning-badge tw-overload" title="任务过载">!</span>';
+      if (dueWarning) {
+        const overdueClass = dueWarning.isOverdue ? ' overdue' : '';
+        badgesHtml += '<span class="task-warning-badge tw-due' + overdueClass + '" title="' + dueWarning.message + '">'
+          + (dueWarning.isOverdue ? '!' : dueWarning.daysLeft) + '</span>';
+      }
+      if (hasPrereq) badgesHtml += '<span class="task-warning-badge tw-prereq" title="前置工序未完成">P</span>';
+      badgesHtml += '</div>';
+
+      let dueLabel = '';
+      if (dueWarning) {
+        const cls = dueWarning.isOverdue ? 'due-label overdue' : 'due-label due';
+        const text = dueWarning.isOverdue ? '已逾期' : '剩' + dueWarning.daysLeft + '天';
+        dueLabel = '<span class="' + cls + '">' + text + '</span>';
+      }
+
+      const actions = isAllView ? '' : '<div class="task-actions" style="margin-top:4px;">'
+        + '<button style="padding:2px 6px;font-size:10px;" data-toggle-task="' + task.id + '" data-order-id="' + task.orderId + '">' + toggleText + '</button>'
+        + '<button style="padding:2px 6px;font-size:10px;" class="secondary" data-edit-task="' + task.id + '" data-order-id="' + task.orderId + '">编辑</button>'
+        + '<button style="padding:2px 6px;font-size:10px;" class="secondary" data-delete-task="' + task.id + '" data-order-id="' + task.orderId + '">删除</button>'
+        + '</div>';
+
+      return '<div class="' + cls + '" draggable="' + !isAllView + '" data-task-id="' + task.id + '" data-order-id="' + task.orderId + '" data-stage="' + task.stage + '" data-date="' + task.date + '">'
+        + badgesHtml
+        + '<div class="wt-title">' + task.client + '·' + task.fishSpecies + '</div>'
+        + '<div class="wt-meta">'
+        + '<span class="wt-assignee">' + task.assignee + '</span>'
+        + '<span>' + task.orderId + '</span>'
+        + dueLabel
+        + '</div>'
+        + (task.note ? '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + task.note + '</div>' : '')
+        + actions
+        + '</div>';
+    }
+
     function renderTaskCard(task) {
       const cls = task.completed ? "schedule-task completed" : "schedule-task";
       const toggleText = task.completed ? "恢复" : "完成";
@@ -2313,7 +2630,8 @@ function page() {
       draggedTask = {
         id: e.target.dataset.taskId,
         orderId: e.target.dataset.orderId,
-        stage: e.target.dataset.stage
+        stage: e.target.dataset.stage,
+        date: e.target.dataset.date
       };
       e.target.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
@@ -2321,7 +2639,7 @@ function page() {
 
     function handleDragEnd(e) {
       e.target.classList.remove("dragging");
-      document.querySelectorAll(".schedule-column").forEach(el => {
+      document.querySelectorAll(".schedule-column, .week-cell").forEach(el => {
         el.classList.remove("drag-over");
       });
       draggedTask = null;
@@ -2331,27 +2649,52 @@ function page() {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       const column = e.target.closest(".schedule-column");
+      const cell = e.target.closest(".week-cell");
       if (column) column.classList.add("drag-over");
+      if (cell) cell.classList.add("drag-over");
     }
 
     function handleDragLeave(e) {
       const column = e.target.closest(".schedule-column");
+      const cell = e.target.closest(".week-cell");
       if (column && !column.contains(e.relatedTarget)) {
         column.classList.remove("drag-over");
+      }
+      if (cell && !cell.contains(e.relatedTarget)) {
+        cell.classList.remove("drag-over");
       }
     }
 
     async function handleDrop(e) {
       e.preventDefault();
       const column = e.target.closest(".schedule-column");
+      const cell = e.target.closest(".week-cell");
       if (column) column.classList.remove("drag-over");
+      if (cell) cell.classList.remove("drag-over");
       if (!requireBranch()) return;
-      if (!draggedTask || !column) return;
+      if (!draggedTask) return;
 
-      const targetStage = column.dataset.stage;
-      if (targetStage === draggedTask.stage) return;
+      let targetStage = null;
+      let targetDate = null;
+      let changes = [];
 
-      const reason = prompt("请输入变更原因（将记录到订单历史）：");
+      if (column) {
+        targetStage = column.dataset.stage;
+        if (targetStage === draggedTask.stage) return;
+        changes.push("工序：" + draggedTask.stage + " → " + targetStage);
+      } else if (cell) {
+        targetStage = cell.dataset.stage;
+        targetDate = cell.dataset.date;
+        const stageChanged = targetStage !== draggedTask.stage;
+        const dateChanged = targetDate !== draggedTask.date;
+        if (!stageChanged && !dateChanged) return;
+        if (stageChanged) changes.push("工序：" + draggedTask.stage + " → " + targetStage);
+        if (dateChanged) changes.push("日期：" + draggedTask.date + " → " + targetDate);
+      } else {
+        return;
+      }
+
+      const reason = prompt("请输入变更原因。变更内容：" + changes.join("，"));
       if (reason === null) return;
       if (!reason.trim()) {
         alert("请输入变更原因");
@@ -2359,22 +2702,21 @@ function page() {
       }
 
       try {
+        const updateBody = { changeReason: reason.trim() };
+        if (targetStage) updateBody.stage = targetStage;
+        if (targetDate) updateBody.date = targetDate;
         await api("/api/orders/"+draggedTask.orderId+"/tasks/"+draggedTask.id, {
           method: "PUT",
-          body: JSON.stringify({
-            stage: targetStage,
-            changeReason: reason.trim()
-          })
+          body: JSON.stringify(updateBody)
         });
-        scheduleTasks = await loadScheduleTasks();
-        renderSchedule();
+        await loadScheduleAndRender();
       } catch (err) {
         alert(err.message);
       }
     }
 
     function openTaskModal(taskId, orderId) {
-      const task = scheduleTasks.find(t => t.id === taskId && t.orderId === orderId);
+      const task = findScheduleTask(taskId, orderId);
       if (!task) return;
       editingTask = { ...task };
       const overlay = document.querySelector("#task-modal-overlay");
@@ -2435,7 +2777,7 @@ function page() {
 
     async function toggleTaskComplete(taskId, orderId) {
       if (!requireBranch()) return;
-      const task = scheduleTasks.find(t => t.id === taskId && t.orderId === orderId);
+      const task = findScheduleTask(taskId, orderId);
       if (!task) return;
       const reason = task.completed ? "恢复任务" : "标记任务完成";
       try {
@@ -2446,8 +2788,7 @@ function page() {
             changeReason: reason
           })
         });
-        scheduleTasks = await loadScheduleTasks();
-        renderSchedule();
+        await loadScheduleAndRender();
       } catch (err) {
         alert(err.message);
       }
@@ -2479,8 +2820,7 @@ function page() {
         document.querySelector("#task-delete-modal").classList.remove("active");
         deletingTaskId = null;
         deletingTaskOrderId = null;
-        scheduleTasks = await loadScheduleTasks();
-        renderSchedule();
+        await loadScheduleAndRender();
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = "block";
@@ -2664,8 +3004,7 @@ function page() {
         renderCalendar();
       }
       if (currentTab === "schedule") {
-        scheduleTasks = await loadScheduleTasks();
-        renderSchedule();
+        await loadScheduleAndRender();
       }
       if (currentTab === "dashboard") {
         await loadDashboard();
@@ -2694,7 +3033,7 @@ function page() {
       if (currentTab === "calendar") {
         await loadCalendar();
       } else if (currentTab === "schedule") {
-        scheduleTasks = await loadScheduleTasks();
+        await loadScheduleAndRender();
         render();
       } else if (currentTab === "materials") {
         materials = await api("/api/materials");
@@ -3203,9 +3542,34 @@ function page() {
       renderSchedule();
     });
 
+    document.querySelectorAll("#sch-view-toggle button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        scheduleViewMode = btn.dataset.view;
+        loadScheduleAndRender();
+      });
+    });
+
+    document.querySelector("#sch-prev-week")?.addEventListener("click", () => {
+      const d = new Date(currentScheduleDate);
+      d.setDate(d.getDate() - 7);
+      currentScheduleDate = d.toISOString().slice(0, 10);
+      loadScheduleAndRender();
+    });
+
+    document.querySelector("#sch-next-week")?.addEventListener("click", () => {
+      const d = new Date(currentScheduleDate);
+      d.setDate(d.getDate() + 7);
+      currentScheduleDate = d.toISOString().slice(0, 10);
+      loadScheduleAndRender();
+    });
+
     async function loadScheduleAndRender() {
-      scheduleTasks = await loadScheduleTasks();
-      renderSchedule();
+      if (scheduleViewMode === "week") {
+        await loadWeekSchedule();
+      } else {
+        scheduleTasks = await loadScheduleTasks();
+        renderSchedule();
+      }
     }
 
     document.querySelector("#task-close")?.addEventListener("click", () => {
@@ -3288,9 +3652,8 @@ function page() {
         }
         document.querySelector("#task-modal-overlay").classList.remove("active");
         editingTask = null;
-        scheduleTasks = await loadScheduleTasks();
         assignees = await api("/api/assignees");
-        renderSchedule();
+        await loadScheduleAndRender();
       } catch (e) {
         errorEl.textContent = e.message;
         errorEl.style.display = "block";
@@ -3659,6 +4022,111 @@ const server = http.createServer(async (req, res) => {
         max: MAX_TASKS_PER_DAY,
         isOverloaded: count >= MAX_TASKS_PER_DAY,
         warning: count >= MAX_TASKS_PER_DAY ? `${assignee} 在 ${date} 已有 ${count} 个未完成任务，建议分散安排` : null
+      });
+    }
+    if (req.method === "GET" && url.pathname === "/api/schedule/week") {
+      const dateStr = url.searchParams.get("date");
+      const assigneeFilter = url.searchParams.get("assignee");
+      const refDate = dateStr ? new Date(dateStr) : new Date();
+      const weekRange = getWeekRange(refDate);
+      const today = new Date().toISOString().slice(0, 10);
+
+      const allTasks = [];
+      byBranch(db.orders).forEach(order => {
+        (order.tasks || []).forEach(task => {
+          allTasks.push({
+            ...task,
+            orderId: order.id,
+            client: order.client,
+            fishSpecies: order.fishSpecies,
+            size: order.size,
+            orderStatus: order.status,
+            dueDate: order.dueDate,
+            branchId: order.branchId || DEFAULT_BRANCH_ID
+          });
+        });
+      });
+
+      let filtered = allTasks.filter(t => weekRange.days.includes(t.date));
+      if (assigneeFilter) {
+        filtered = filtered.filter(t => t.assignee === assigneeFilter);
+      }
+      filtered.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return scheduleStages.indexOf(a.stage) - scheduleStages.indexOf(b.stage);
+      });
+
+      const warnings = { overloaded: [], dueSoon: [], prereqMissing: [] };
+
+      const workloadMap = {};
+      filtered.filter(t => !t.completed).forEach(t => {
+        const key = t.date + "|" + t.assignee;
+        if (!workloadMap[key]) workloadMap[key] = [];
+        workloadMap[key].push(t);
+      });
+      Object.entries(workloadMap).forEach(([key, tasks]) => {
+        if (tasks.length >= MAX_TASKS_PER_DAY) {
+          const [date, assignee] = key.split("|");
+          warnings.overloaded.push({
+            type: "overloaded",
+            date,
+            assignee,
+            count: tasks.length,
+            taskIds: tasks.map(t => t.id),
+            message: assignee + " 在 " + date + " 有 " + tasks.length + " 个任务，超过每日上限 " + MAX_TASKS_PER_DAY + " 个"
+          });
+        }
+      });
+
+      const todayDate = new Date(today);
+      filtered.filter(t => !t.completed && t.dueDate).forEach(t => {
+        const dueDate = new Date(t.dueDate);
+        const diffDays = Math.ceil((dueDate - todayDate) / (1000 * 60 * 60 * 24));
+        if (diffDays <= DUE_DATE_WARNING_DAYS && diffDays >= -7) {
+          warnings.dueSoon.push({
+            type: "dueSoon",
+            taskId: t.id,
+            orderId: t.orderId,
+            dueDate: t.dueDate,
+            daysLeft: diffDays,
+            isOverdue: diffDays < 0,
+            message: diffDays < 0
+              ? t.client + "·" + t.fishSpecies + " 已逾期 " + Math.abs(diffDays) + " 天"
+              : t.client + "·" + t.fishSpecies + " 还有 " + diffDays + " 天交付"
+          });
+        }
+      });
+
+      const orderTasksMap = {};
+      allTasks.forEach(t => {
+        if (!orderTasksMap[t.orderId]) orderTasksMap[t.orderId] = [];
+        orderTasksMap[t.orderId].push(t);
+      });
+      filtered.filter(t => !t.completed).forEach(t => {
+        const stageIdx = scheduleStages.indexOf(t.stage);
+        if (stageIdx > 0) {
+          const prevStage = scheduleStages[stageIdx - 1];
+          const orderTasks = orderTasksMap[t.orderId] || [];
+          const prevTask = orderTasks.find(ot => ot.stage === prevStage);
+          if (!prevTask || !prevTask.completed) {
+            warnings.prereqMissing.push({
+              type: "prereqMissing",
+              taskId: t.id,
+              orderId: t.orderId,
+              stage: t.stage,
+              prereqStage: prevStage,
+              message: t.client + "·" + t.fishSpecies + " 的前置工序 " + prevStage + " 尚未完成"
+            });
+          }
+        }
+      });
+
+      return sendJson(res, 200, {
+        week: weekRange,
+        weekdayLabels: WEEKDAY_LABELS,
+        tasks: filtered,
+        warnings,
+        today
       });
     }
     if (req.method === "GET" && url.pathname === "/api/orders/calendar") {
