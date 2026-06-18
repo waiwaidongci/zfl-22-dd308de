@@ -674,6 +674,7 @@ function page() {
     .cross-branch-table th { background:var(--bg);padding:10px 12px;text-align:left;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line);font-weight:600; }
     .cross-branch-table td { padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line); }
     .cross-branch-table tr:last-child td { border-bottom:none; }
+    .tab.disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
     @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } }
   </style>
 </head>
@@ -2498,6 +2499,22 @@ function page() {
       else if (currentTab === "branches") renderBranches();
     }
 
+    function activateTab(tabName) {
+      currentTab = tabName;
+      document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tabName));
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+      document.querySelector("#tab-"+tabName)?.classList.add("active");
+    }
+
+    function updateTabAvailability() {
+      const isAllView = currentBranchId === "__all__";
+      document.querySelectorAll(".tab").forEach(t => {
+        const disabled = isAllView && t.dataset.tab !== "dashboard";
+        t.classList.toggle("disabled", disabled);
+        t.setAttribute("aria-disabled", disabled ? "true" : "false");
+      });
+    }
+
     function renderBranchSelector() {
       const sel = document.querySelector("#branch-selector");
       const prevVal = sel.value || currentBranchId;
@@ -2517,7 +2534,8 @@ function page() {
       const isAllView = currentBranchId === "__all__";
       const addBranchBtn = document.querySelector("#add-branch-btn");
       if (addBranchBtn) addBranchBtn.style.display = isAllView ? "none" : "";
-      gridEl.innerHTML = branches.map(b => {
+      const visibleBranches = isAllView ? branches : branches.filter(b => b.id === currentBranchId);
+      gridEl.innerHTML = visibleBranches.map(b => {
         const s = statsMap[b.id] || {};
         const actionsHtml = isAllView ? '' : '<div class="row" style="margin-top:8px;">'
           + '<button data-edit-branch="' + b.id + '">编辑</button>'
@@ -2578,6 +2596,9 @@ function page() {
 
     document.querySelector("#branch-selector").onchange = (e) => {
       currentBranchId = e.target.value;
+      if (currentBranchId === "__all__") {
+        activateTab("dashboard");
+      }
       load();
     };
 
@@ -2614,6 +2635,18 @@ function page() {
     async function load() {
       branches = await api("/api/branches");
       renderBranchSelector();
+      updateTabAvailability();
+      if (currentBranchId === "__all__") {
+        orders = [];
+        works = [];
+        customers = [];
+        assignees = [];
+        materials = [];
+        materialTransactions = [];
+        changeRequests = [];
+        await loadDashboard();
+        return;
+      }
       orders = await api("/api/orders");
       works = await api("/api/works");
       customers = await api("/api/customers");
@@ -2656,11 +2689,8 @@ function page() {
     }
 
     document.querySelectorAll(".tab").forEach(tab => tab.onclick = async () => {
-      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-      tab.classList.add("active");
-      currentTab = tab.dataset.tab;
-      document.querySelector("#tab-"+currentTab).classList.add("active");
+      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard") return;
+      activateTab(tab.dataset.tab);
       if (currentTab === "calendar") {
         await loadCalendar();
       } else if (currentTab === "schedule") {
@@ -3293,8 +3323,12 @@ const server = http.createServer(async (req, res) => {
     const db = await loadDb();
     const branchId = url.searchParams.get("branchId") || DEFAULT_BRANCH_ID;
     const byBranch = (items) => branchId === "__all__" ? items : items.filter(i => (i.branchId || DEFAULT_BRANCH_ID) === branchId);
+    const allViewReadPaths = new Set(["/api/branches", "/api/branches/stats", "/api/dashboard/cross-branch"]);
     if (branchId === "__all__" && req.method !== "GET") {
       return sendJson(res, 403, { error: "总部视角下不能进行数据操作，请切换到具体分店" });
+    }
+    if (branchId === "__all__" && req.method === "GET" && !allViewReadPaths.has(url.pathname)) {
+      return sendJson(res, 403, { error: "总部视角仅支持跨分店经营看板，请切换到具体分店查看业务数据" });
     }
     if (req.method === "GET" && url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
