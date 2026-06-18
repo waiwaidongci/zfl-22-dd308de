@@ -1179,9 +1179,9 @@ function page() {
         <option value="破损损耗">破损损耗</option>
         <option value="录入错误修正">录入错误修正</option>
         <option value="自然损耗">自然损耗</option>
-        <option value="其他">其他（请在下方备注说明</option>
+        <option value="其他">其他（请在下方备注说明）</option>
       </select>
-      <label>备注说明</label><textarea id="sc-reason-detail" placeholder="请输入详细说明（必填"></textarea>
+      <label>备注说明</label><textarea id="sc-reason-detail" placeholder="请输入详细说明（必填）"></textarea>
       <div id="sc-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
         <button class="secondary modal-close" id="sc-close">取消</button>
