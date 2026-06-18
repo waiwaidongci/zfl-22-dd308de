@@ -1391,6 +1391,10 @@ function page() {
       const allNotes = stages.map(s => s.data.note || "").filter(Boolean).join("；");
       const timeline = stages.map(s => s.data.status + "@" + new Date(s.timestamp).toLocaleString()).join(" → ");
       const hasForceOverride = stages.some(s => s.data && s.data.forceOverride === true);
+      const originalBaseline = stages
+        .map(s => s.data && s.data.baselineUpdatedAt)
+        .filter(Boolean)
+        .sort((a, b) => new Date(a) - new Date(b))[0] || lastStage.data.baselineUpdatedAt;
       return {
         opId: lastStage.opId,
         type: "update_stage",
@@ -1398,7 +1402,7 @@ function page() {
           orderId,
           status: lastStage.data.status,
           note: allNotes + " [连续更新链：" + timeline + "]",
-          baselineUpdatedAt: lastStage.data.baselineUpdatedAt,
+          baselineUpdatedAt: originalBaseline,
           forceOverride: hasForceOverride,
           _consolidatedFrom: stages.map(s => s.opId)
         },
@@ -1599,12 +1603,10 @@ function page() {
       const pendingUpdates = allPriorUpdates.filter(q => q.status === "pending");
       let effectiveBaseline = baselineUpdatedAt;
       if (!effectiveBaseline && allPriorUpdates.length > 0) {
-        const latest = allPriorUpdates[allPriorUpdates.length - 1];
-        if (latest.data.baselineUpdatedAt && latest.data.baselineUpdatedAt > (latest.timestamp || "")) {
-          effectiveBaseline = latest.data.baselineUpdatedAt;
-        } else {
-          effectiveBaseline = latest.timestamp;
-        }
+        effectiveBaseline = allPriorUpdates
+          .map(q => q.data && q.data.baselineUpdatedAt)
+          .filter(Boolean)
+          .sort((a, b) => new Date(a) - new Date(b))[0];
       }
       if (!effectiveBaseline && order) {
         effectiveBaseline = (order.history && order.history.length > 0)
