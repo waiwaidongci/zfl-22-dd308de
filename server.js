@@ -1390,6 +1390,7 @@ function page() {
       const lastStage = stages[stages.length - 1];
       const allNotes = stages.map(s => s.data.note || "").filter(Boolean).join("；");
       const timeline = stages.map(s => s.data.status + "@" + new Date(s.timestamp).toLocaleString()).join(" → ");
+      const hasForceOverride = stages.some(s => s.data && s.data.forceOverride === true);
       return {
         opId: lastStage.opId,
         type: "update_stage",
@@ -1398,6 +1399,7 @@ function page() {
           status: lastStage.data.status,
           note: allNotes + " [连续更新链：" + timeline + "]",
           baselineUpdatedAt: lastStage.data.baselineUpdatedAt,
+          forceOverride: hasForceOverride,
           _consolidatedFrom: stages.map(s => s.opId)
         },
         status: "pending",
@@ -1589,15 +1591,20 @@ function page() {
     async function queueUpdateStage(orderId, status, note, baselineUpdatedAt) {
       const order = orders.find(o => o.id === orderId);
       const queue = await getOfflineQueue();
-      const priorUpdates = queue.filter(q =>
-        q.status === "pending" &&
+      const allPriorUpdates = queue.filter(q =>
+        (q.status === "pending" || q.status === "conflict") &&
         q.type === "update_stage" &&
         (q.data.orderId === orderId || q.orderId === orderId)
       );
+      const pendingUpdates = allPriorUpdates.filter(q => q.status === "pending");
       let effectiveBaseline = baselineUpdatedAt;
-      if (!effectiveBaseline && priorUpdates.length > 0) {
-        const latest = priorUpdates[priorUpdates.length - 1];
-        effectiveBaseline = latest.timestamp;
+      if (!effectiveBaseline && allPriorUpdates.length > 0) {
+        const latest = allPriorUpdates[allPriorUpdates.length - 1];
+        if (latest.data.baselineUpdatedAt && latest.data.baselineUpdatedAt > (latest.timestamp || "")) {
+          effectiveBaseline = latest.data.baselineUpdatedAt;
+        } else {
+          effectiveBaseline = latest.timestamp;
+        }
       }
       if (!effectiveBaseline && order) {
         effectiveBaseline = (order.history && order.history.length > 0)
@@ -1607,11 +1614,11 @@ function page() {
       const entry = {
         opId: generateOpId(),
         type: "update_stage",
-        data: { orderId, status, note, baselineUpdatedAt: effectiveBaseline, _chainLength: priorUpdates.length + 1 },
+        data: { orderId, status, note, baselineUpdatedAt: effectiveBaseline, _chainLength: allPriorUpdates.length + 1 },
         status: "pending",
         timestamp: new Date().toISOString(),
         branchId: currentBranchId,
-        summary: "阶段更新 · " + orderId + " → " + status + (priorUpdates.length > 0 ? " (链" + (priorUpdates.length + 1) + ")" : ""),
+        summary: "阶段更新 · " + orderId + " → " + status + (pendingUpdates.length > 0 ? " (链" + (allPriorUpdates.length + 1) + ")" : ""),
         createdAt: new Date().toISOString()
       };
       await addToOfflineQueue(entry);
@@ -3393,7 +3400,7 @@ function page() {
           const queue = await getOfflineQueue();
           const item = queue.find(q => q.opId === opId);
           if (!item) return;
-          if (item.type === "add_payment") {
+          if (item.type === "add_payment" || item.type === "update_stage") {
             item.data.forceOverride = true;
           }
           await saveOfflineQueue(queue);
@@ -5429,6 +5436,7 @@ const server = http.createServer(async (req, res) => {
               const serverLastUpdate = (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : new Date(0).toISOString();
               const hasChainConflict = op.data.baselineUpdatedAt
                 && !isSameBatchCreate
+                && !op.data.forceOverride
                 && new Date(op.data.baselineUpdatedAt) < new Date(serverLastUpdate);
               if (hasChainConflict) {
                 result.status = "conflict";
