@@ -28,7 +28,7 @@
       "category": "纸张",
       "unit": "张",
       "stock": 60,
-      "reserved": 0,
+      "reserved": 1,
       "threshold": 15,
       "note": "四尺整纸规格 69x138cm",
       "branchId": "BR-DEFAULT"
@@ -242,6 +242,49 @@
     }
   ],
   "orders": [
+    {
+      "id": "FT-1781782125872-ycz3",
+      "fishSpecies": "测试鱼种(离线)",
+      "size": "40×60cm",
+      "paper": "宣纸",
+      "inkScheme": "朱砂红",
+      "mountingStyle": "卷轴装",
+      "inscription": "测试题字",
+      "owner": "李师傅",
+      "price": 2800,
+      "dueDate": "2025-03-15",
+      "client": "沈钧",
+      "customerId": "C-1781693865536-6l9t",
+      "note": "这是一个离线创建的测试订单",
+      "_clientOrderId": "LOCAL-1781782074754",
+      "paid": false,
+      "payments": [],
+      "status": "待拓印",
+      "tasks": [
+        {
+          "id": "T-1781782125872-yvsd-1",
+          "stage": "待拓印",
+          "assignee": "李师傅",
+          "date": "2026-06-18",
+          "note": "新委托接单",
+          "completed": false,
+          "createdAt": "2026-06-18T11:27:54.754Z",
+          "updatedAt": "2026-06-18T11:27:54.754Z"
+        }
+      ],
+      "materialUsage": {
+        "M-003": 1
+      },
+      "history": [
+        {
+          "at": "2026-06-18T11:27:54.754Z",
+          "stage": "待拓印",
+          "note": "新委托接单"
+        }
+      ],
+      "branchId": "BR-DEFAULT",
+      "offlineCreatedAt": "2026-06-18T11:27:54.754Z"
+    },
     {
       "id": "FT-1781761797860",
       "client": "测试客户2",

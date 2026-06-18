@@ -675,7 +675,58 @@ function page() {
     .cross-branch-table td { padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line); }
     .cross-branch-table tr:last-child td { border-bottom:none; }
     .tab.disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } }
+    .network-status { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--line); }
+    .network-status.online { background:#eef9f4; color:#246b68; border-color:#bcd8d4; }
+    .network-status.offline { background:#fce4e4; color:#9b2c2c; border-color:#e8b4b4; }
+    .network-status.syncing { background:#fff7e6; color:#d48806; border-color:#ffe58f; }
+    .network-status .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:currentColor; }
+    .network-status.online .status-dot { animation:pulse-dot 2s ease-in-out infinite; }
+    @keyframes pulse-dot { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .pending-count { background:rgba(0,0,0,0.1); padding:1px 8px; border-radius:999px; font-size:11px; }
+    .sync-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
+    .sync-stats { display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:16px; }
+    .sync-stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; text-align:center; }
+    .sync-stat strong { display:block; font-size:28px; }
+    .sync-stat .label { font-size:12px; color:var(--muted); }
+    .sync-stat.pending strong { color:#d48806; }
+    .sync-stat.success strong { color:#246b68; }
+    .sync-stat.failed strong { color:#9b2c2c; }
+    .sync-stat.conflict strong { color:#a65b2a; }
+    .sync-filters { display:flex; gap:8px; align-items:center; }
+    .sync-filters button { padding:6px 14px; background:transparent; border:1px solid var(--line); color:var(--muted); font-weight:600; border-radius:6px; cursor:pointer; font-size:13px; }
+    .sync-filters button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .sync-list { display:grid; gap:10px; }
+    .sync-item { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; display:grid; gap:8px; }
+    .sync-item .sync-header { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .sync-item .sync-title { font-weight:700; font-size:15px; }
+    .sync-item .sync-status-badge { padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+    .sync-item.status-pending { border-left:4px solid #d48806; }
+    .sync-item.status-success { border-left:4px solid #246b68; }
+    .sync-item.status-failed { border-left:4px solid #9b2c2c; }
+    .sync-item.status-conflict { border-left:4px solid #a65b2a; }
+    .sync-item.status-syncing { border-left:4px solid #1890ff; opacity:0.7; }
+    .badge-pending { background:#fff7e6; color:#d48806; }
+    .badge-success { background:#eef9f4; color:#246b68; }
+    .badge-failed { background:#fce4e4; color:#9b2c2c; }
+    .badge-conflict { background:#fff3e0; color:#a65b2a; }
+    .badge-syncing { background:#e6f7ff; color:#1890ff; }
+    .sync-item .sync-meta { font-size:12px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }
+    .sync-item .sync-data { font-size:13px; background:var(--bg); padding:8px 12px; border-radius:6px; max-height:150px; overflow-y:auto; font-family:monospace; }
+    .sync-item .sync-error { font-size:13px; color:#9b2c2c; background:#fce4e4; padding:8px 12px; border-radius:6px; }
+    .sync-item .sync-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .sync-item .sync-actions button { padding:6px 12px; font-size:12px; }
+    .conflict-detail { background:#fff9f3; border:1px solid #f0c98a; border-radius:6px; padding:12px; margin-top:6px; }
+    .conflict-detail h5 { margin:0 0 8px; font-size:13px; color:#8a5a1e; }
+    .conflict-side-by-side { display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px; }
+    .conflict-box { background:#fff; border:1px solid var(--line); border-radius:6px; padding:10px; }
+    .conflict-box.server { border-color:#bcd8d4; }
+    .conflict-box.local { border-color:#ffe58f; }
+    .conflict-box .conflict-label { font-size:11px; font-weight:700; color:var(--muted); margin-bottom:6px; text-transform:uppercase; }
+    .conflict-box .conflict-field { padding:3px 0; border-bottom:1px dashed var(--line); display:flex; justify-content:space-between; }
+    .conflict-box .conflict-field:last-child { border-bottom:none; }
+    .conflict-box .field-name { color:var(--muted); }
+    .offline-tip { background:#fff7e6; border:1px solid #ffe58f; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#8a6d3b; display:flex; align-items:center; gap:8px; }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } .sync-stats { grid-template-columns:1fr 1; } .conflict-side-by-side { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -685,8 +736,14 @@ function page() {
       <div class="meta">接单、拓印、装裱、交付 · 作品沉淀</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
+      <div id="network-status" class="network-status online" title="网络状态">
+        <span class="status-dot"></span>
+        <span class="status-text">在线</span>
+        <span id="pending-count" class="pending-count" style="display:none;">待同步 0</span>
+      </div>
       <select id="branch-selector" style="min-width:160px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;font:inherit;"></select>
       <button id="reload">刷新</button>
+      <button id="sync-now-btn" class="secondary" style="display:none;">立即同步</button>
     </div>
   </header>
   <main>
@@ -700,6 +757,7 @@ function page() {
       <div class="tab" data-tab="changes">变更审批</div>
       <div class="tab" data-tab="dashboard">经营看板</div>
       <div class="tab" data-tab="branches">分店管理</div>
+      <div class="tab" data-tab="sync">离线同步</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
@@ -893,6 +951,29 @@ function page() {
         <button id="add-branch-btn">+ 新增分店</button>
       </div>
       <div class="grid" id="branches-grid"></div>
+    </div>
+    <div class="tab-content" id="tab-sync">
+      <div id="sync-offline-tip" class="offline-tip" style="display:none;">
+        <span>📡</span> 当前处于离线状态，操作将暂存到本地，恢复连接后自动同步
+      </div>
+      <div class="sync-toolbar">
+        <div class="network-status online" id="sync-network-badge">
+          <span class="status-dot"></span>
+          <span class="status-text">在线</span>
+        </div>
+        <button id="sync-all-btn">立即同步</button>
+        <button id="sync-clear-done-btn" class="secondary">清除已完成</button>
+        <div class="spacer"></div>
+        <div class="sync-filters">
+          <button class="active" data-sync-filter="all">全部</button>
+          <button data-sync-filter="pending">待同步</button>
+          <button data-sync-filter="success">成功</button>
+          <button data-sync-filter="failed">失败</button>
+          <button data-sync-filter="conflict">冲突</button>
+        </div>
+      </div>
+      <div class="sync-stats" id="sync-stats"></div>
+      <div class="sync-list" id="sync-list"></div>
     </div>
   </main>
   <div class="modal-overlay" id="modal-overlay">
@@ -1144,6 +1225,529 @@ function page() {
     let branches = [];
     let currentBranchId = DEFAULT_BRANCH_ID;
     let editingBranchId = null;
+    let syncFilter = "all";
+    let isOnline = true;
+    let isSyncing = false;
+    let syncAutoTimer = null;
+
+    const OFFLINE_QUEUE_KEY = "zfl_offline_queue";
+    const OFFLINE_CACHE_KEY = "zfl_offline_cache";
+    const IDB_NAME = "ZFL_OfflineDB";
+    const IDB_VERSION = 1;
+    const IDB_STORE_QUEUE = "sync_queue";
+    const IDB_STORE_CACHE = "data_cache";
+    const idbPromise = (() => {
+      try {
+        if (!window.indexedDB) return Promise.reject(new Error("indexedDB_not_supported"));
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(IDB_STORE_QUEUE)) {
+              const s = db.createObjectStore(IDB_STORE_QUEUE, { keyPath: "opId" });
+              s.createIndex("status", "status", { unique: false });
+              s.createIndex("orderId", "orderId", { unique: false });
+              s.createIndex("createdAt", "createdAt", { unique: false });
+              s.createIndex("timestamp", "timestamp", { unique: false });
+            }
+            if (!db.objectStoreNames.contains(IDB_STORE_CACHE)) {
+              db.createObjectStore(IDB_STORE_CACHE, { keyPath: "key" });
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    })();
+
+    async function idbRun(storeName, mode, fn) {
+      try {
+        const db = await idbPromise;
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(storeName, mode);
+          const store = tx.objectStore(storeName);
+          try {
+            const result = fn(store);
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function idbGetAll(storeName) {
+      const result = await idbRun(storeName, "readonly", (store) => {
+        const req = store.getAll();
+        return new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      });
+      return result || [];
+    }
+
+    async function idbPut(storeName, value) {
+      return idbRun(storeName, "readwrite", (store) => store.put(value));
+    }
+
+    async function idbDelete(storeName, keys) {
+      return idbRun(storeName, "readwrite", (store) => {
+        keys.forEach(k => store.delete(k));
+        return true;
+      });
+    }
+
+    function getOfflineQueueLS() {
+      try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]"); }
+      catch { return []; }
+    }
+
+    function saveOfflineQueueLS(queue) {
+      try {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+      } catch (e) {}
+    }
+
+    async function getOfflineQueue() {
+      try {
+        const idbQueue = await idbGetAll(IDB_STORE_QUEUE);
+        if (idbQueue && idbQueue.length > 0) {
+          saveOfflineQueueLS(idbQueue);
+          return idbQueue;
+        }
+        return getOfflineQueueLS();
+      } catch (e) {
+        return getOfflineQueueLS();
+      }
+    }
+
+    async function saveOfflineQueue(queue) {
+      saveOfflineQueueLS(queue);
+      try {
+        const db = await idbPromise;
+        const tx = db.transaction(IDB_STORE_QUEUE, "readwrite");
+        const store = tx.objectStore(IDB_STORE_QUEUE);
+        store.clear();
+        for (const item of queue) store.put(item);
+      } catch (e) {}
+    }
+
+    async function addToOfflineQueue(entry) {
+      let queue = await getOfflineQueue();
+      queue.push(entry);
+      if (entry.type === "create_order") {
+        entry.orderId = entry.data._clientOrderId;
+      } else if (entry.type === "update_stage" || entry.type === "add_payment") {
+        entry.orderId = entry.data.orderId;
+      }
+      await saveOfflineQueue(queue);
+      updateNetworkUI();
+      if (currentTab === "sync") renderSync();
+    }
+
+    async function updateOfflineQueueItem(opId, updates) {
+      const queue = await getOfflineQueue();
+      const idx = queue.findIndex(q => q.opId === opId);
+      if (idx !== -1) {
+        Object.assign(queue[idx], updates);
+        await saveOfflineQueue(queue);
+      }
+    }
+
+    async function removeOfflineQueueItems(opIds) {
+      let queue = await getOfflineQueue();
+      queue = queue.filter(q => !opIds.includes(q.opId));
+      await saveOfflineQueue(queue);
+      try { await idbDelete(IDB_STORE_QUEUE, opIds); } catch (e) {}
+    }
+
+    function extractOrderIdFromOp(op) {
+      if (op.type === "create_order") return op.data._clientOrderId;
+      if (op.type === "update_stage" || op.type === "add_payment") return op.data.orderId;
+      return null;
+    }
+
+    function buildOperationChains(queue) {
+      const orderOps = new Map();
+      const sorted = [...queue].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      for (const op of sorted) {
+        const oid = extractOrderIdFromOp(op);
+        if (oid) {
+          if (!orderOps.has(oid)) orderOps.set(oid, []);
+          orderOps.get(oid).push(op);
+        }
+      }
+      return orderOps;
+    }
+
+    function consolidateStageUpdatesForOrder(orderId, ops, serverSnapshot) {
+      const stages = ops.filter(o => o.type === "update_stage");
+      if (stages.length <= 1) return null;
+      const lastStage = stages[stages.length - 1];
+      const allNotes = stages.map(s => s.data.note || "").filter(Boolean).join("；");
+      const timeline = stages.map(s => s.data.status + "@" + new Date(s.timestamp).toLocaleString()).join(" → ");
+      return {
+        opId: lastStage.opId,
+        type: "update_stage",
+        data: {
+          orderId,
+          status: lastStage.data.status,
+          note: allNotes + " [连续更新链：" + timeline + "]",
+          baselineUpdatedAt: lastStage.data.baselineUpdatedAt,
+          _consolidatedFrom: stages.map(s => s.opId)
+        },
+        status: "pending",
+        timestamp: lastStage.timestamp,
+        branchId: lastStage.branchId,
+        summary: "阶段更新(合并" + stages.length + "次) · " + orderId + " → " + lastStage.data.status,
+        createdAt: lastStage.createdAt
+      };
+    }
+
+    async function checkNetworkStatus() {
+      const wasOnline = isOnline;
+      isOnline = navigator.onLine;
+      await updateNetworkUI();
+      if (!wasOnline && isOnline) {
+        triggerSync();
+      }
+    }
+
+    async function updateNetworkUI() {
+      const ns = document.querySelector("#network-status");
+      const btn = document.querySelector("#sync-now-btn");
+      const tip = document.querySelector("#sync-offline-tip");
+      const badge = document.querySelector("#sync-network-badge");
+      const queue = await getOfflineQueue();
+      const pendingCount = queue.filter(q => q.status === "pending").length;
+
+      if (ns) {
+        ns.className = "network-status " + (isOnline ? "online" : "offline");
+        ns.querySelector(".status-text").textContent = isOnline ? "在线" : "离线";
+      }
+      if (badge) {
+        badge.className = "network-status " + (isOnline ? "online" : (isSyncing ? "syncing" : "offline"));
+        badge.querySelector(".status-text").textContent = isSyncing ? "同步中" : (isOnline ? "在线" : "离线");
+      }
+      const pc = document.querySelector("#pending-count");
+      if (pc) {
+        pc.style.display = pendingCount > 0 ? "" : "none";
+        pc.textContent = "待同步 " + pendingCount;
+      }
+      if (btn) btn.style.display = (!isOnline || pendingCount > 0) ? "" : "none";
+      if (tip) tip.style.display = isOnline ? "none" : "";
+    }
+
+    async function triggerSync() {
+      if (isSyncing || !isOnline) return;
+      const queue = await getOfflineQueue();
+      const pendingOps = queue.filter(q => q.status === "pending");
+      if (pendingOps.length === 0) return;
+
+      const orderChains = buildOperationChains(pendingOps);
+      const consolidatedOps = [];
+      const skipOpIds = new Set();
+
+      for (const [orderId, ops] of orderChains) {
+        const createOrder = ops.find(o => o.type === "create_order");
+        const stageUpdates = ops.filter(o => o.type === "update_stage");
+        const payments = ops.filter(o => o.type === "add_payment");
+
+        if (createOrder) {
+          consolidatedOps.push(createOrder);
+        }
+
+        if (stageUpdates.length > 1 && !createOrder) {
+          const consolidated = consolidateStageUpdatesForOrder(orderId, stageUpdates);
+          if (consolidated) {
+            stageUpdates.forEach(s => skipOpIds.add(s.opId));
+            consolidatedOps.push(consolidated);
+          } else {
+            stageUpdates.forEach(s => consolidatedOps.push(s));
+          }
+        } else {
+          stageUpdates.forEach(s => consolidatedOps.push(s));
+        }
+
+        payments.forEach(p => consolidatedOps.push(p));
+      }
+
+      const others = pendingOps.filter(o => !extractOrderIdFromOp(o));
+      others.forEach(o => consolidatedOps.push(o));
+
+      const finalOps = consolidatedOps
+        .filter(o => !skipOpIds.has(o.opId))
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      const syncedOpIds = new Set(finalOps.map(o => o.opId));
+      for (const op of finalOps) {
+        if (op.data && op.data._consolidatedFrom) {
+          op.data._consolidatedFrom.forEach(cid => syncedOpIds.add(cid));
+        }
+      }
+
+      isSyncing = true;
+      await updateNetworkUI();
+      if (currentTab === "sync") renderSync();
+
+      const operations = finalOps.map(q => ({
+        id: q.opId,
+        type: q.type,
+        data: q.data,
+        timestamp: q.timestamp,
+        branchId: q.branchId || currentBranchId
+      }));
+
+      try {
+        const res = await fetch("/api/sync/batch?branchId=" + currentBranchId, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ operations, chainInfo: Object.fromEntries(orderChains) })
+        });
+        const result = await res.json();
+
+        if (result.idMapping && typeof result.idMapping === "object") {
+          for (const [localId, serverId] of Object.entries(result.idMapping)) {
+            await replaceLocalOrderIdWithServerId(localId, serverId);
+          }
+        }
+
+        for (let i = 0; i < result.results.length; i++) {
+          const r = result.results[i];
+          const op = finalOps[i];
+          if (!op) continue;
+
+          const affectedIds = (op.data && op.data._consolidatedFrom) ? [...op.data._consolidatedFrom, op.opId] : [op.opId];
+
+          for (const id of affectedIds) {
+            if (r.status === "success") {
+              await updateOfflineQueueItem(id, {
+                status: "success",
+                syncedAt: new Date().toISOString(),
+                resultData: r.data,
+                originalClientId: r.originalClientId,
+                _consolidated: id !== op.opId,
+                _chainInfo: op.data && op.data._consolidatedFrom ? { count: op.data._consolidatedFrom.length } : null
+              });
+            } else if (r.status === "conflict") {
+              await updateOfflineQueueItem(id, {
+                status: "conflict",
+                conflictData: r.conflict,
+                syncedAt: new Date().toISOString(),
+                _consolidated: id !== op.opId
+              });
+            } else {
+              await updateOfflineQueueItem(id, {
+                status: "failed",
+                error: r.error || "unknown_error",
+                syncedAt: new Date().toISOString(),
+                _consolidated: id !== op.opId
+              });
+            }
+          }
+        }
+      } catch (e) {
+        for (const id of syncedOpIds) {
+          await updateOfflineQueueItem(id, {
+            status: "failed",
+            error: e.message,
+            syncedAt: new Date().toISOString()
+          });
+        }
+      }
+
+      isSyncing = false;
+      await updateNetworkUI();
+      if (currentTab === "sync") renderSync();
+      await load();
+    }
+
+    function generateOpId() {
+      return "OP-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    }
+
+    async function queueCreateOrder(payload) {
+      const clientOrderId = "LOCAL-" + Date.now();
+      const entry = {
+        opId: generateOpId(),
+        type: "create_order",
+        data: { ...payload, _clientOrderId: clientOrderId },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "新增委托 · " + (payload.fishSpecies || "") + " · " + (payload.client || payload.newCustomer?.name || ""),
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
+    async function queueUpdateStage(orderId, status, note, baselineUpdatedAt) {
+      const order = orders.find(o => o.id === orderId);
+      const queue = await getOfflineQueue();
+      const priorUpdates = queue.filter(q =>
+        q.status === "pending" &&
+        q.type === "update_stage" &&
+        (q.data.orderId === orderId || q.orderId === orderId)
+      );
+      let effectiveBaseline = baselineUpdatedAt;
+      if (!effectiveBaseline && priorUpdates.length > 0) {
+        const latest = priorUpdates[priorUpdates.length - 1];
+        effectiveBaseline = latest.timestamp;
+      }
+      if (!effectiveBaseline && order) {
+        effectiveBaseline = (order.history && order.history.length > 0)
+          ? order.history[order.history.length - 1].at
+          : "";
+      }
+      const entry = {
+        opId: generateOpId(),
+        type: "update_stage",
+        data: { orderId, status, note, baselineUpdatedAt: effectiveBaseline, _chainLength: priorUpdates.length + 1 },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "阶段更新 · " + orderId + " → " + status + (priorUpdates.length > 0 ? " (链" + (priorUpdates.length + 1) + ")" : ""),
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
+    async function queueAddPayment(orderId, payment) {
+      const entry = {
+        opId: generateOpId(),
+        type: "add_payment",
+        data: { orderId, payment, forceOverride: false },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "登记收款 · " + orderId + " · " + payment.type + " ¥" + payment.amount,
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
+    function applyOfflineCreateOrderToLocal(entry) {
+      const d = entry.data;
+      const clientOrderId = d._clientOrderId;
+      const materialUsage = {};
+      const fakeOrder = {
+        id: clientOrderId,
+        client: d.client || d.newCustomer?.name || "新客户",
+        fishSpecies: d.fishSpecies,
+        size: d.size,
+        paper: d.paper,
+        inkPlan: d.inkPlan,
+        mounting: d.mounting,
+        inscription: d.inscription || "",
+        owner: d.owner,
+        price: Number(d.price || 0),
+        paid: false,
+        payments: [],
+        status: "待拓印",
+        tasks: [{
+          id: "T-LOCAL-" + Date.now(),
+          stage: "待拓印",
+          assignee: d.owner || "未分配",
+          date: new Date().toISOString().slice(0, 10),
+          note: "新委托接单",
+          completed: false,
+          createdAt: entry.timestamp,
+          updatedAt: entry.timestamp
+        }],
+        history: [{ at: entry.timestamp, stage: "待拓印", note: "新委托接单（离线）" }],
+        dueDate: d.dueDate,
+        customerId: d.customerId || "",
+        branchId: currentBranchId,
+        _isOffline: true
+      };
+      return fakeOrder;
+    }
+
+    function applyOfflineStageUpdateToLocal(entry) {
+      const d = entry.data;
+      const order = orders.find(o => o.id === d.orderId);
+      if (!order) return null;
+      const oldStatus = order.status;
+      order.status = d.status;
+      if (!order.history) order.history = [];
+      order.history.push({ at: entry.timestamp, stage: d.status, note: (d.note || "阶段更新") + "（离线）" });
+      return order;
+    }
+
+    function applyOfflinePaymentToLocal(entry) {
+      const d = entry.data;
+      const order = orders.find(o => o.id === d.orderId);
+      if (!order) return null;
+      const payment = d.payment;
+      if (!order.payments) order.payments = [];
+      order.payments.push({
+        id: "PAY-LOCAL-" + Date.now(),
+        type: payment.type || "定金",
+        amount: Number(payment.amount || 0),
+        paidAt: payment.paidAt || new Date().toISOString().slice(0, 10),
+        note: (payment.note || "") + "（离线）",
+        _isOffline: true
+      });
+      const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
+      order.paid = totalPaid >= order.price;
+      return order;
+    }
+
+    async function applyAllOfflineOperationsToLocal() {
+      const queue = await getOfflineQueue();
+      const pendingOps = queue.filter(q => q.status === "pending");
+      for (const entry of pendingOps) {
+        if (entry.type === "create_order") {
+          const fake = applyOfflineCreateOrderToLocal(entry);
+          if (fake && !orders.find(o => o.id === fake.id)) {
+            orders.unshift(fake);
+          }
+        } else if (entry.type === "update_stage") {
+          applyOfflineStageUpdateToLocal(entry);
+        } else if (entry.type === "add_payment") {
+          applyOfflinePaymentToLocal(entry);
+        }
+      }
+    }
+
+    async function replaceLocalOrderIdWithServerId(localId, serverId) {
+      const idx = orders.findIndex(o => o.id === localId);
+      if (idx !== -1) {
+        orders[idx].id = serverId;
+        delete orders[idx]._isOffline;
+        const queue = await getOfflineQueue();
+        let changed = false;
+        for (const q of queue) {
+          if (q.type === "update_stage" && q.data && q.data.orderId === localId) {
+            q.data.orderId = serverId;
+            changed = true;
+          }
+          if (q.type === "add_payment" && q.data && q.data.orderId === localId) {
+            q.data.orderId = serverId;
+            changed = true;
+          }
+        }
+        if (changed) {
+          await saveOfflineQueue(queue);
+        }
+      }
+    }
+
+    window.addEventListener("online", () => {
+      isOnline = true;
+      checkNetworkStatus();
+    });
+    window.addEventListener("offline", () => {
+      isOnline = false;
+      checkNetworkStatus();
+    });
 
     async function api(path, options) {
       const sep = path.includes('?') ? '&' : '?';
@@ -1238,8 +1842,24 @@ function page() {
         const id = btn.dataset.save;
         const status = document.querySelector('[data-id="'+id+'"]').value;
         const note = document.querySelector('[data-note="'+id+'"]').value || "阶段更新";
-        await api('/api/orders/'+id+'/stage', { method:'POST', body: JSON.stringify({ status, note }) });
-        await load();
+        try {
+          if (isOnline) {
+            await api('/api/orders/'+id+'/stage', { method:'POST', body: JSON.stringify({ status, note }) });
+            await load();
+          } else {
+            await queueUpdateStage(id, status, note);
+            await applyAllOfflineOperationsToLocal();
+            renderOrders();
+          }
+        } catch (e) {
+          if (!navigator.onLine || e.message === "Failed to fetch") {
+            await queueUpdateStage(id, status, note);
+            await applyAllOfflineOperationsToLocal();
+            renderOrders();
+          } else {
+            alert(e.message);
+          }
+        }
       });
       document.querySelectorAll("[data-archive]").forEach(btn => btn.onclick = async () => {
         if (!requireBranch()) return;
@@ -2497,6 +3117,7 @@ function page() {
       else if (currentTab === "changes") renderChanges();
       else if (currentTab === "dashboard") renderDashboard();
       else if (currentTab === "branches") renderBranches();
+      else if (currentTab === "sync") renderSync();
     }
 
     function activateTab(tabName) {
@@ -2509,7 +3130,7 @@ function page() {
     function updateTabAvailability() {
       const isAllView = currentBranchId === "__all__";
       document.querySelectorAll(".tab").forEach(t => {
-        const disabled = isAllView && t.dataset.tab !== "dashboard";
+        const disabled = isAllView && t.dataset.tab !== "dashboard" && t.dataset.tab !== "sync";
         t.classList.toggle("disabled", disabled);
         t.setAttribute("aria-disabled", disabled ? "true" : "false");
       });
@@ -2594,6 +3215,207 @@ function page() {
       overlay.classList.add("active");
     }
 
+    async function renderSync() {
+      const queue = await getOfflineQueue();
+      const filtered = syncFilter === "all" ? queue : queue.filter(q => q.status === syncFilter);
+      const pendingCount = queue.filter(q => q.status === "pending").length;
+      const successCount = queue.filter(q => q.status === "success").length;
+      const failedCount = queue.filter(q => q.status === "failed").length;
+      const conflictCount = queue.filter(q => q.status === "conflict").length;
+      const consolidatedCount = queue.filter(q => q._consolidated).length;
+
+      const statsEl = document.querySelector("#sync-stats");
+      if (statsEl) {
+        statsEl.innerHTML = '<div class="sync-stat pending"><strong>'+pendingCount+'</strong><div class="label">待同步</div></div>'
+          + '<div class="sync-stat success"><strong>'+successCount+'</strong><div class="label">已成功</div></div>'
+          + '<div class="sync-stat failed"><strong>'+failedCount+'</strong><div class="label">失败</div></div>'
+          + '<div class="sync-stat conflict"><strong>'+conflictCount+'</strong><div class="label">需人工确认</div></div>';
+      }
+
+      const listEl = document.querySelector("#sync-list");
+      if (!listEl) return;
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;padding:48px;color:var(--muted);"><div style="font-size:48px;margin-bottom:12px;opacity:0.4;">📋</div><div style="font-size:15px;font-weight:600;margin-bottom:6px;">暂无同步记录</div><div style="font-size:13px;">离线操作将在此处显示同步状态</div></div>';
+        return;
+      }
+
+      const sorted = [...filtered].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const orderChainsMap = new Map();
+      for (const item of sorted) {
+        const oid = extractOrderIdFromOp(item);
+        if (oid) {
+          if (!orderChainsMap.has(oid)) orderChainsMap.set(oid, []);
+          orderChainsMap.get(oid).push(item);
+        }
+      }
+
+      listEl.innerHTML = sorted.map(item => {
+        const typeLabel = item.type === "create_order" ? "新增委托" : (item.type === "update_stage" ? "阶段更新" : "登记收款");
+        let displayStatus = item.status;
+        if (item._consolidated && item.status === "success") displayStatus = "consolidated-success";
+        const statusText = item.status === "pending" ? "待同步" : item.status === "success" ? (item._consolidated ? "合并成功" : "成功") : item.status === "failed" ? "失败" : item.status === "conflict" ? "需人工确认" : "同步中";
+        const statusBadge = '<span class="sync-status-badge badge-'+(item._consolidated && item.status === "success" ? "success" : item.status)+'">'+statusText+'</span>';
+        const statusClass = "status-" + item.status + (item._consolidated ? ' consolidated-item' : '');
+        const chainInfo = (item.data && item.data._chainLength) ? '<span style="background:#fff3e0;color:#a65b2a;padding:1px 7px;border-radius:4px;font-size:11px;">链×' + item.data._chainLength + '</span>' : "";
+        const opIdShort = item.opId.replace(/^OP-/, "").slice(0, 12);
+
+        let detailHtml = "";
+        if (item.type === "create_order") {
+          const d = item.data;
+          detailHtml = '<div class="sync-data">'
+            + '<div>🐟 <strong>鱼种：</strong>'+(d.fishSpecies||"-")+'</div>'
+            + '<div>📐 <strong>尺寸：</strong>'+(d.size||"-")+'</div>'
+            + '<div>📄 <strong>纸张：</strong>'+(d.paper||"-")+'</div>'
+            + '<div>💰 <strong>报价：</strong>¥'+(d.price||0)+'</div>'
+            + '<div>👤 <strong>负责人：</strong>'+(d.owner||"-")+'</div>'
+            + '<div>📅 <strong>交付日期：</strong>'+(d.dueDate||"-")+'</div>'
+            + (d.newCustomer?.name ? '<div>👥 <strong>新客户：</strong>'+d.newCustomer.name+(d.newCustomer.phone?' · '+d.newCustomer.phone:'')+'</div>' : '')
+            + '</div>';
+        } else if (item.type === "update_stage") {
+          detailHtml = '<div class="sync-data">'
+            + '<div>📋 <strong>订单：</strong>'+item.data.orderId+'</div>'
+            + '<div>🔄 <strong>阶段：</strong>'+item.data.status+'</div>'
+            + '<div>📝 <strong>备注：</strong>'+(item.data.note||"-")+'</div>'
+            + (item.data._consolidatedFrom ? '<div>🔗 <strong>合并操作数：</strong>'+item.data._consolidatedFrom.length+'</div>' : '')
+            + '</div>';
+        } else if (item.type === "add_payment") {
+          const p = item.data.payment || {};
+          detailHtml = '<div class="sync-data">'
+            + '<div>📋 <strong>订单：</strong>'+item.data.orderId+'</div>'
+            + '<div>💳 <strong>类型：</strong>'+(p.type||"收款")+'</div>'
+            + '<div>💵 <strong>金额：</strong><span style="color:var(--warn);font-weight:700;">¥'+(p.amount||0)+'</span></div>'
+            + '<div>📅 <strong>日期：</strong>'+(p.paidAt||"-")+'</div>'
+            + (p.note ? '<div>📝 <strong>备注：</strong>'+p.note+'</div>' : '')
+            + '</div>';
+        }
+
+        let errorHtml = "";
+        if (item.status === "failed" && item.error) {
+          const errMap = {
+            "order_not_found": "订单不存在",
+            "unknown_operation_type": "未知操作类型",
+            "报价为空，无法登记收款": "报价为空，无法登记收款",
+            "收款金额必须大于0": "收款金额必须大于0"
+          };
+          const friendlyMsg = errMap[item.error] || item.error;
+          errorHtml = '<div class="sync-error"><strong>❌ 错误：</strong>'+friendlyMsg+'</div>';
+        }
+
+        let conflictHtml = "";
+        if (item.status === "conflict" && item.conflictData) {
+          const cd = item.conflictData;
+          if (item.type === "update_stage") {
+            const server = cd.serverSnapshot || {};
+            const local = cd.localChange || {};
+            const serverHist = (server.history || []).slice(-3).map(h => h.stage + "@" + fmtDate(h.at)).reverse().join(" → ");
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情：服务器端数据在此期间已有更新</h5>'
+              + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">建议：对比双方数据后选择「强制覆盖」或「放弃本地」</p>'
+              + '<div class="conflict-side-by-side">'
+              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器当前</div>'
+              + '<div class="conflict-field"><span class="field-name">状态</span><span style="color:#246b68;font-weight:700;">'+server.status+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">最后更新</span><span>'+(server.updatedAt ? fmtDate(server.updatedAt) + " " + new Date(server.updatedAt).toLocaleTimeString() : "-")+'</span></div>'
+              + (serverHist ? '<div class="conflict-field"><span class="field-name">近期历史</span><span style="font-size:11px;">'+serverHist+'</span></div>' : '')
+              + '</div>'
+              + '<div class="conflict-box local"><div class="conflict-label">📱 离线修改</div>'
+              + '<div class="conflict-field"><span class="field-name">目标状态</span><span style="color:#a65b2a;font-weight:700;">'+local.status+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">变更备注</span><span>'+(local.note||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">离线时间</span><span>'+(local.offlineAt?fmtDate(local.offlineAt)+" "+new Date(local.offlineAt).toLocaleTimeString():"-")+'</span></div>'
+              + '</div></div></div>';
+          } else if (item.type === "add_payment") {
+            const server = cd.serverSnapshot || {};
+            const local = cd.localChange || {};
+            const existingPayments = (server.payments || []).map(p => p.type + " ¥" + p.amount + " " + p.paidAt + (p.note ? " · " + p.note : "")).join("<br>");
+            const paidTotal = (server.payments || []).reduce((s,p) => s + (p.amount||0), 0);
+            const localAmt = (local.payment?.amount || 0);
+            const willOver = (server.paid ? "已收清" : "当前已收 ¥" + paidTotal + "，再加 ¥" + localAmt);
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情：疑似重复收款或超额收款</h5>'
+              + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">'+(cd.reason === "duplicate_payment" ? "检测到服务器已有相同类型、金额、日期的收款记录" : "收款金额可能超过应收")+'。确认后可选择「强制覆盖」。</p>'
+              + '<div class="conflict-side-by-side">'
+              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器收款记录</div>'
+              + '<div class="conflict-field"><span class="field-name">订单状态</span><span>'+(server.paid ? '<span style="color:#246b68;font-weight:700;">已收清</span>' : '<span style="color:#a65b2a;font-weight:700;">未收清</span>')+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">已有收款</span><span style="font-size:11px;text-align:right;line-height:1.6;">'+(existingPayments || "无")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">风险提示</span><span style="font-size:11px;">'+willOver+'</span></div>'
+              + '</div>'
+              + '<div class="conflict-box local"><div class="conflict-label">📱 离线提交</div>'
+              + '<div class="conflict-field"><span class="field-name">收款类型</span><span>'+(local.payment?.type||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">收款金额</span><span style="color:var(--warn);font-weight:700;">¥'+localAmt+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">收款日期</span><span>'+(local.payment?.paidAt||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">备注</span><span>'+(local.payment?.note||"-")+'</span></div>'
+              + '</div></div></div>';
+          } else if (item.type === "create_order") {
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情</h5>'
+              + '<div style="font-size:12px;color:var(--muted);padding:8px;background:#fff;border-radius:4px;">创建订单时发生冲突，请重试</div></div>';
+          }
+        }
+
+        let actionsHtml = "";
+        if (item.status === "pending") {
+          actionsHtml = '<div class="sync-actions"><button class="secondary" data-sync-discard="'+item.opId+'">取消此操作</button></div>';
+        } else if (item.status === "failed") {
+          actionsHtml = '<div class="sync-actions"><button data-sync-retry="'+item.opId+'">🔄 重试</button><button class="secondary" data-sync-discard="'+item.opId+'">删除记录</button></div>';
+        } else if (item.status === "conflict") {
+          actionsHtml = '<div class="sync-actions"><button data-sync-force="'+item.opId+'">✊ 强制使用本地</button><button class="secondary" data-sync-discard="'+item.opId+'">🤝 以服务器为准</button></div>';
+        } else if (item.status === "success") {
+          const timeAgo = item.syncedAt ? " · " + timeAgoText(item.syncedAt) : "";
+          actionsHtml = '<div class="sync-actions"><span style="font-size:12px;color:var(--accent);font-weight:600;">✓ 同步完成'+timeAgo+'</span></div>';
+        }
+
+        const metaChainInfo = item.orderId ? '<span style="background:var(--bg);padding:2px 7px;border-radius:4px;">📦 ' + item.orderId + '</span>' : "";
+        return '<div class="sync-item '+statusClass+'">'
+          + '<div class="sync-header"><span class="sync-title">'+typeLabel+'</span><span style="display:flex;gap:6px;align-items:center;">'+chainInfo+statusBadge+'</span></div>'
+          + '<div class="sync-meta"><span>'+item.summary+'</span><span>'+fmtDate(item.createdAt)+' '+new Date(item.createdAt).toLocaleTimeString()+'</span>'+metaChainInfo+'<span style="font-family:monospace;font-size:11px;color:var(--muted);">#'+opIdShort+'</span></div>'
+          + detailHtml
+          + errorHtml
+          + conflictHtml
+          + actionsHtml
+          + '</div>';
+      }).join("");
+
+      listEl.querySelectorAll("[data-sync-discard]").forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm("确认放弃此操作？")) return;
+          await removeOfflineQueueItems([btn.dataset.syncDiscard]);
+          await updateNetworkUI();
+          renderSync();
+        };
+      });
+      listEl.querySelectorAll("[data-sync-retry]").forEach(btn => {
+        btn.onclick = async () => {
+          await updateOfflineQueueItem(btn.dataset.syncRetry, { status: "pending", error: null });
+          renderSync();
+          await triggerSync();
+        };
+      });
+      listEl.querySelectorAll("[data-sync-force]").forEach(btn => {
+        btn.onclick = async () => {
+          const opId = btn.dataset.syncForce;
+          const queue = await getOfflineQueue();
+          const item = queue.find(q => q.opId === opId);
+          if (!item) return;
+          if (item.type === "add_payment") {
+            item.data.forceOverride = true;
+          }
+          await saveOfflineQueue(queue);
+          await updateOfflineQueueItem(opId, { status: "pending", error: null, conflictData: null, data: item.data });
+          renderSync();
+          await triggerSync();
+        };
+      });
+    }
+
+    function timeAgoText(isoTime) {
+      const diff = Date.now() - new Date(isoTime).getTime();
+      const sec = Math.floor(diff / 1000);
+      if (sec < 60) return sec + "秒前";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return min + "分钟前";
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return hr + "小时前";
+      const day = Math.floor(hr / 24);
+      return day + "天前";
+    }
+
     document.querySelector("#branch-selector").onchange = (e) => {
       currentBranchId = e.target.value;
       if (currentBranchId === "__all__") {
@@ -2645,27 +3467,41 @@ function page() {
         materialTransactions = [];
         changeRequests = [];
         await loadDashboard();
+        updateNetworkUI();
         return;
       }
-      orders = await api("/api/orders");
-      works = await api("/api/works");
-      customers = await api("/api/customers");
-      assignees = await api("/api/assignees");
-      materials = await api("/api/materials");
-      materialTransactions = await api("/api/materials/transactions");
-      changeRequests = await api("/api/change-requests");
+      try {
+        orders = await api("/api/orders");
+        works = await api("/api/works");
+        customers = await api("/api/customers");
+        assignees = await api("/api/assignees");
+        materials = await api("/api/materials");
+        materialTransactions = await api("/api/materials/transactions");
+        changeRequests = await api("/api/change-requests");
+      } catch (e) {
+        if (!navigator.onLine) {
+          await applyAllOfflineOperationsToLocal();
+        } else {
+          throw e;
+        }
+      }
+      await applyAllOfflineOperationsToLocal();
       renderOrders();
       renderWorks();
       renderCustomers();
       renderMaterials();
       renderChanges();
       if (currentTab === "calendar") {
-        calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
-        renderCalendar();
+        try {
+          calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
+          renderCalendar();
+        } catch (e) {}
       }
       if (currentTab === "schedule") {
-        scheduleTasks = await loadScheduleTasks();
-        renderSchedule();
+        try {
+          scheduleTasks = await loadScheduleTasks();
+          renderSchedule();
+        } catch (e) {}
       }
       if (currentTab === "dashboard") {
         await loadDashboard();
@@ -2673,6 +3509,10 @@ function page() {
       if (currentTab === "branches") {
         renderBranches();
       }
+      if (currentTab === "sync") {
+        renderSync();
+      }
+      await updateNetworkUI();
     }
 
     async function loadCalendar() {
@@ -2689,7 +3529,7 @@ function page() {
     }
 
     document.querySelectorAll(".tab").forEach(tab => tab.onclick = async () => {
-      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard") return;
+      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard" && tab.dataset.tab !== "sync") return;
       activateTab(tab.dataset.tab);
       if (currentTab === "calendar") {
         await loadCalendar();
@@ -2707,6 +3547,8 @@ function page() {
         await loadDashboard();
       } else if (currentTab === "branches") {
         renderBranches();
+      } else if (currentTab === "sync") {
+        renderSync();
       } else {
         render();
       }
@@ -2979,15 +3821,29 @@ function page() {
         return;
       }
       try {
-        await api('/api/orders/'+currentPaymentOrderId+'/payments', {
-          method: 'POST',
-          body: JSON.stringify({ type, amount: Number(amount), paidAt, note })
-        });
-        await load();
-        openPaymentModal(currentPaymentOrderId);
+        if (isOnline) {
+          await api('/api/orders/'+currentPaymentOrderId+'/payments', {
+            method: 'POST',
+            body: JSON.stringify({ type, amount: Number(amount), paidAt, note })
+          });
+          await load();
+          openPaymentModal(currentPaymentOrderId);
+        } else {
+          await queueAddPayment(currentPaymentOrderId, { type, amount: Number(amount), paidAt, note });
+          await applyAllOfflineOperationsToLocal();
+          renderOrders();
+          openPaymentModal(currentPaymentOrderId);
+        }
       } catch (e) {
-        errorEl.textContent = e.message;
-        errorEl.style.display = "block";
+        if (!navigator.onLine || e.message === "Failed to fetch") {
+          await queueAddPayment(currentPaymentOrderId, { type, amount: Number(amount), paidAt, note });
+          await applyAllOfflineOperationsToLocal();
+          renderOrders();
+          openPaymentModal(currentPaymentOrderId);
+        } else {
+          errorEl.textContent = e.message;
+          errorEl.style.display = "block";
+        }
       }
     };
 
@@ -3099,14 +3955,30 @@ function page() {
       delete payload.newCustomerWechat;
       delete payload.newCustomerAddress;
       try {
-        await api("/api/orders", { method:"POST", body: JSON.stringify(payload) });
-        form.reset();
-        document.querySelector("#new-customer-subform").classList.remove("active");
-        await load();
+        if (isOnline) {
+          await api("/api/orders", { method:"POST", body: JSON.stringify(payload) });
+          form.reset();
+          document.querySelector("#new-customer-subform").classList.remove("active");
+          await load();
+        } else {
+          await queueCreateOrder(payload);
+          form.reset();
+          document.querySelector("#new-customer-subform").classList.remove("active");
+          await applyAllOfflineOperationsToLocal();
+          renderOrders();
+        }
       } catch (e) {
-        errorEl.className = "form-error";
-        errorEl.textContent = e.message;
-        form.appendChild(errorEl);
+        if (!navigator.onLine || e.message === "Failed to fetch") {
+          await queueCreateOrder(payload);
+          form.reset();
+          document.querySelector("#new-customer-subform").classList.remove("active");
+          await applyAllOfflineOperationsToLocal();
+          renderOrders();
+        } else {
+          errorEl.className = "form-error";
+          errorEl.textContent = e.message;
+          form.appendChild(errorEl);
+        }
       }
     };
 
@@ -3311,7 +4183,32 @@ function page() {
     });
     document.querySelector("#task-delete-confirm")?.addEventListener("click", deleteTask);
 
-    load();
+    document.querySelector("#sync-all-btn")?.addEventListener("click", async () => {
+      await triggerSync();
+    });
+    document.querySelector("#sync-clear-done-btn")?.addEventListener("click", async () => {
+      const queue = await getOfflineQueue();
+      const remaining = queue.filter(q => q.status !== "success" && q.status !== "failed");
+      await saveOfflineQueue(remaining);
+      await updateNetworkUI();
+      renderSync();
+    });
+    document.querySelector("#sync-now-btn")?.addEventListener("click", async () => {
+      await triggerSync();
+    });
+    document.querySelectorAll("[data-sync-filter]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-sync-filter]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        syncFilter = btn.dataset.syncFilter;
+        renderSync();
+      };
+    });
+
+    (async () => {
+      await checkNetworkStatus();
+      load();
+    })();
   </script>
 </body>
 </html>`;
@@ -4425,6 +5322,312 @@ const server = http.createServer(async (req, res) => {
         allOrders: allOrdersWithBranch
       });
     }
+    if (req.method === "GET" && url.pathname.match(/^\/api\/orders\/([^/]+)\/snapshot$/)) {
+      const match = url.pathname.match(/^\/api\/orders\/([^/]+)\/snapshot$/);
+      const order = db.orders.find(item => item.id === match[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      return sendJson(res, 200, {
+        id: order.id,
+        status: order.status,
+        paid: order.paid,
+        payments: order.payments || [],
+        history: order.history || [],
+        updatedAt: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : new Date(0).toISOString()
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sync/batch") {
+      const input = await body(req);
+      const operations = input.operations || [];
+      const chainInfo = input.chainInfo || {};
+      const results = [];
+      const localIdToServerId = new Map();
+      const batchPaymentByOrder = new Map();
+      const processedOrderIds = new Set();
+
+      for (let opIdx = 0; opIdx < operations.length; opIdx++) {
+        const op = operations[opIdx];
+        const result = { opId: op.id, type: op.type, status: "success", data: null, error: null, conflict: null };
+        try {
+          if (op.type === "create_order") {
+            const createInput = op.data;
+            let customerId = createInput.customerId;
+            let clientName = createInput.client;
+            if (createInput.newCustomer && createInput.newCustomer.name) {
+              const newCust = {
+                id: `C-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                name: createInput.newCustomer.name,
+                phone: createInput.newCustomer.phone || "",
+                wechat: createInput.newCustomer.wechat || "",
+                address: createInput.newCustomer.address || "",
+                note: createInput.newCustomer.note || "",
+                createdAt: new Date().toISOString(),
+                branchId
+              };
+              db.customers.push(newCust);
+              customerId = newCust.id;
+              clientName = newCust.name;
+            } else if (customerId) {
+              const cust = db.customers.find(c => c.id === customerId);
+              if (cust) clientName = cust.name;
+            }
+            const orderId = `FT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const initialTasks = [
+              {
+                id: `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-1`,
+                stage: "待拓印",
+                assignee: createInput.owner || "未分配",
+                date: new Date().toISOString().slice(0, 10),
+                note: "新委托接单",
+                completed: false,
+                createdAt: op.timestamp || new Date().toISOString(),
+                updatedAt: op.timestamp || new Date().toISOString()
+              }
+            ];
+            const materialUsage = estimateMaterialUsage(createInput);
+            const order = {
+              id: orderId,
+              ...createInput,
+              customerId,
+              client: clientName || createInput.client,
+              price: Number(createInput.price || 0),
+              paid: false,
+              payments: [],
+              status: "待拓印",
+              tasks: initialTasks,
+              materialUsage,
+              history: [{ at: op.timestamp || new Date().toISOString(), stage: "待拓印", note: "新委托接单" }],
+              branchId,
+              offlineCreatedAt: op.timestamp
+            };
+            delete order.newCustomer;
+            const branchMaterials = byBranch(db.materials || []);
+            for (const [matId, qty] of Object.entries(materialUsage)) {
+              const mat = branchMaterials.find(m => m.id === matId);
+              if (mat) {
+                mat.reserved = (mat.reserved || 0) + qty;
+              }
+            }
+            db.orders.unshift(order);
+            result.data = order;
+            result.originalClientId = createInput._clientOrderId;
+            if (createInput._clientOrderId) {
+              localIdToServerId.set(createInput._clientOrderId, orderId);
+            }
+            processedOrderIds.add(orderId);
+          } else if (op.type === "update_stage") {
+            let effectiveOrderId = op.data.orderId;
+            if (localIdToServerId.has(effectiveOrderId)) {
+              effectiveOrderId = localIdToServerId.get(effectiveOrderId);
+            }
+            const order = db.orders.find(item => item.id === effectiveOrderId && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
+            if (!order) {
+              result.status = "failed";
+              result.error = "order_not_found";
+            } else {
+              const isSameBatchCreate = processedOrderIds.has(effectiveOrderId);
+              const serverLastUpdate = (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : new Date(0).toISOString();
+              const hasChainConflict = op.data.baselineUpdatedAt
+                && !isSameBatchCreate
+                && new Date(op.data.baselineUpdatedAt) < new Date(serverLastUpdate);
+              if (hasChainConflict) {
+                result.status = "conflict";
+                result.conflict = {
+                  serverSnapshot: {
+                    id: order.id,
+                    status: order.status,
+                    history: order.history || [],
+                    updatedAt: serverLastUpdate
+                  },
+                  localChange: { status: op.data.status, note: op.data.note, offlineAt: op.timestamp },
+                  reason: "server_updated_during_offline"
+                };
+              } else {
+                const oldStatus = order.status;
+                order.status = op.data.status;
+                const chainNote = (op.data._consolidatedFrom && op.data._consolidatedFrom.length > 1)
+                  ? (op.data.note || "") + ` [离线连续更新${op.data._consolidatedFrom.length}次]`
+                  : (op.data.note || "");
+                order.history.push({ at: op.timestamp || new Date().toISOString(), stage: op.data.status, note: chainNote });
+                processedOrderIds.add(effectiveOrderId);
+
+                if (op.data.status === "已完成" && oldStatus !== "已完成" && order.materialUsage && !order.materialDeducted) {
+                  const orderBranchId = order.branchId || branchId;
+                  const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+                  for (const [matId, qty] of Object.entries(order.materialUsage)) {
+                    const mat = branchMaterials.find(m => m.id === matId);
+                    if (mat) {
+                      const beforeStock = mat.stock || 0;
+                      const beforeReserved = mat.reserved || 0;
+                      const actualDeductReserved = Math.min(qty, beforeReserved);
+                      mat.stock = Math.max(0, beforeStock - qty);
+                      mat.reserved = Math.max(0, beforeReserved - actualDeductReserved);
+                      db.materialTransactions.push({
+                        id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        materialId: mat.id,
+                        materialName: mat.name,
+                        materialUnit: mat.unit,
+                        type: "出库",
+                        quantity: qty,
+                        before: beforeStock,
+                        after: mat.stock,
+                        orderId: order.id,
+                        note: `订单 ${order.id} 完成，扣减实际用量`,
+                        at: new Date().toISOString(),
+                        branchId: orderBranchId
+                      });
+                    }
+                  }
+                  order.materialDeducted = true;
+                }
+
+                if (op.data.status !== "已完成" && oldStatus === "已完成" && order.materialUsage && order.materialDeducted) {
+                  const orderBranchId = order.branchId || branchId;
+                  const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+                  for (const [matId, qty] of Object.entries(order.materialUsage)) {
+                    const mat = branchMaterials.find(m => m.id === matId);
+                    if (mat) {
+                      const beforeStock = mat.stock || 0;
+                      mat.stock = beforeStock + qty;
+                      mat.reserved = (mat.reserved || 0) + qty;
+                      db.materialTransactions.push({
+                        id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        materialId: mat.id,
+                        materialName: mat.name,
+                        materialUnit: mat.unit,
+                        type: "入库",
+                        quantity: qty,
+                        before: beforeStock,
+                        after: mat.stock,
+                        orderId: order.id,
+                        note: `订单 ${order.id} 状态回退，恢复材料`,
+                        at: new Date().toISOString(),
+                        branchId: orderBranchId
+                      });
+                    }
+                  }
+                  order.materialDeducted = false;
+                }
+
+                if (scheduleStages.includes(op.data.status)) {
+                  if (!order.tasks) order.tasks = [];
+                  const existingTask = order.tasks.find(t => t.stage === op.data.status);
+                  if (!existingTask) {
+                    const taskId = `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                    order.tasks.push({
+                      id: taskId,
+                      stage: op.data.status,
+                      assignee: order.owner || "未分配",
+                      date: new Date().toISOString().slice(0, 10),
+                      note: op.data.note || "",
+                      completed: false,
+                      createdAt: op.timestamp || new Date().toISOString(),
+                      updatedAt: op.timestamp || new Date().toISOString()
+                    });
+                  }
+                }
+                result.data = order;
+              }
+            }
+          } else if (op.type === "add_payment") {
+            let effectiveOrderId = op.data.orderId;
+            if (localIdToServerId.has(effectiveOrderId)) {
+              effectiveOrderId = localIdToServerId.get(effectiveOrderId);
+            }
+            const order = db.orders.find(item => item.id === effectiveOrderId && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
+            if (!order) {
+              result.status = "failed";
+              result.error = "order_not_found";
+            } else if (!order.price || order.price <= 0) {
+              result.status = "failed";
+              result.error = "报价为空，无法登记收款";
+            } else {
+              const payment = op.data.payment || {};
+              const newAmount = Number(payment.amount || 0);
+              if (newAmount <= 0) {
+                result.status = "failed";
+                result.error = "收款金额必须大于0";
+              } else {
+                if (!batchPaymentByOrder.has(effectiveOrderId)) {
+                  batchPaymentByOrder.set(effectiveOrderId, { total: 0, items: [] });
+                }
+                const batchInfo = batchPaymentByOrder.get(effectiveOrderId);
+
+                const existingPaidTotal = (order.payments || []).reduce((s, p) => s + p.amount, 0);
+                const batchPaidTotal = batchInfo.total;
+                const effectivePaid = (order.paid && existingPaidTotal === 0) ? order.price : existingPaidTotal;
+                const grandTotal = effectivePaid + batchPaidTotal + newAmount;
+
+                if (grandTotal > order.price && !op.data.forceOverride) {
+                  result.status = "conflict";
+                  result.conflict = {
+                    serverSnapshot: {
+                      payments: order.payments || [],
+                      paid: order.paid,
+                      price: order.price,
+                      existingPaid: effectivePaid,
+                      batchPending: batchPaidTotal
+                    },
+                    localChange: { payment, offlineAt: op.timestamp },
+                    reason: grandTotal > order.price ? "payment_overflows_total" : "duplicate_payment",
+                    overflowAmount: grandTotal - order.price
+                  };
+                } else {
+                  const recentDup = (order.payments || []).find(p =>
+                    p.type === payment.type && p.amount === newAmount && p.paidAt === payment.paidAt
+                  );
+                  const batchDup = batchInfo.items.find(p =>
+                    p.type === payment.type && p.amount === newAmount && p.paidAt === payment.paidAt
+                  );
+                  if ((recentDup || batchDup) && !op.data.forceOverride) {
+                    result.status = "conflict";
+                    result.conflict = {
+                      serverSnapshot: {
+                        payments: order.payments || [],
+                        paid: order.paid,
+                        price: order.price,
+                        existingPaid: effectivePaid,
+                        batchPayments: batchInfo.items
+                      },
+                      localChange: { payment, offlineAt: op.timestamp },
+                      reason: "duplicate_payment",
+                      duplicateInBatch: !!batchDup
+                    };
+                  } else {
+                    if (!order.payments) order.payments = [];
+                    const pay = {
+                      id: `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                      type: payment.type || "定金",
+                      amount: newAmount,
+                      paidAt: payment.paidAt || new Date().toISOString().slice(0, 10),
+                      note: (payment.note || "") + (batchInfo.items.length > 0 ? ` [离线连续收款${batchInfo.items.length + 1}笔]` : ""),
+                      offlineCreatedAt: op.timestamp
+                    };
+                    order.payments.push(pay);
+                    batchInfo.items.push(payment);
+                    batchInfo.total += newAmount;
+                    const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
+                    order.paid = totalPaid >= order.price;
+                    result.data = pay;
+                  }
+                }
+              }
+            }
+          } else {
+            result.status = "failed";
+            result.error = "unknown_operation_type";
+          }
+        } catch (err) {
+          result.status = "failed";
+          result.error = err.message;
+        }
+        results.push(result);
+      }
+
+      await saveDb(db);
+      return sendJson(res, 200, { results, idMapping: Object.fromEntries(localIdToServerId) });
+    }
+
     sendJson(res, 404, { error: "not_found" });
   } catch (error) {
     sendJson(res, 500, { error: error.message });
