@@ -43,13 +43,13 @@ const MATERIAL_CATEGORIES = {
 };
 
 const DEFAULT_MATERIALS = [
-  { id: "M-001", name: "手工楮皮纸", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 50, reserved: 0, threshold: 10, note: "四尺整纸规格 69x138cm" },
-  { id: "M-002", name: "云母宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 80, reserved: 0, threshold: 15, note: "四尺整纸规格 69x138cm" },
-  { id: "M-003", name: "净皮宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 60, reserved: 0, threshold: 15, note: "四尺整纸规格 69x138cm" },
-  { id: "M-004", name: "墨料", category: MATERIAL_CATEGORIES.INK, unit: "克", stock: 500, reserved: 0, threshold: 100, note: "松烟墨粉" },
-  { id: "M-005", name: "朱砂", category: MATERIAL_CATEGORIES.CINNABAR, unit: "克", stock: 100, reserved: 0, threshold: 20, note: "书画朱砂粉" },
-  { id: "M-006", name: "装裱轴头(木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 30, reserved: 0, threshold: 5, note: "实木轴头，四尺用" },
-  { id: "M-007", name: "装裱轴头(仿红木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 20, reserved: 0, threshold: 5, note: "仿红木轴头，四尺用" }
+  { id: "M-001", name: "手工楮皮纸", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 50, reserved: 0, threshold: 10, unitCost: 8, note: "四尺整纸规格 69x138cm" },
+  { id: "M-002", name: "云母宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 80, reserved: 0, threshold: 15, unitCost: 5, note: "四尺整纸规格 69x138cm" },
+  { id: "M-003", name: "净皮宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 60, reserved: 0, threshold: 15, unitCost: 6, note: "四尺整纸规格 69x138cm" },
+  { id: "M-004", name: "墨料", category: MATERIAL_CATEGORIES.INK, unit: "克", stock: 500, reserved: 0, threshold: 100, unitCost: 0.5, note: "松烟墨粉" },
+  { id: "M-005", name: "朱砂", category: MATERIAL_CATEGORIES.CINNABAR, unit: "克", stock: 100, reserved: 0, threshold: 20, unitCost: 3, note: "书画朱砂粉" },
+  { id: "M-006", name: "装裱轴头(木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 30, reserved: 0, threshold: 5, unitCost: 15, note: "实木轴头，四尺用" },
+  { id: "M-007", name: "装裱轴头(仿红木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 20, reserved: 0, threshold: 5, unitCost: 25, note: "仿红木轴头，四尺用" }
 ];
 
 const PAPER_AREA_RATIO = (standardArea) => {
@@ -94,6 +94,30 @@ function estimateMaterialUsage(order) {
   }
 
   return usage;
+}
+
+function estimateOrderMaterialCost(order, materials) {
+  const usage = order.materialUsage || estimateMaterialUsage(order);
+  let totalCost = 0;
+  const breakdown = [];
+  for (const [matId, qty] of Object.entries(usage)) {
+    const mat = materials.find(m => m.id === matId);
+    const unitCost = mat?.unitCost || 0;
+    const cost = Number((qty * unitCost).toFixed(2));
+    totalCost += cost;
+    breakdown.push({
+      materialId: matId,
+      name: mat?.name || "未知材料",
+      unit: mat?.unit || "",
+      quantity: qty,
+      unitCost,
+      cost
+    });
+  }
+  return {
+    totalCost: Number(totalCost.toFixed(2)),
+    breakdown
+  };
 }
 
 function formatPaymentRecord(payment) {
@@ -248,6 +272,17 @@ async function migrateLegacyData(db) {
       }
     }
     db._materialMigrated = true;
+    changed = true;
+  }
+  if (!db._materialCostMigrated) {
+    for (const mat of (db.materials || [])) {
+      if (mat.unitCost === undefined || mat.unitCost === null) {
+        const defMat = DEFAULT_MATERIALS.find(d => d.id === mat.id);
+        mat.unitCost = defMat?.unitCost || 0;
+        changed = true;
+      }
+    }
+    db._materialCostMigrated = true;
     changed = true;
   }
   if (!db.customers) { db.customers = []; changed = true; }
@@ -711,6 +746,19 @@ function page() {
     .dashboard-paid-badge.full { background:#dff0ed; color:#1e5854; }
     .dashboard-paid-badge.partial { background:#fde8d8; color:#8a4a1e; }
     .dashboard-paid-badge.none { background:#fce4e4; color:#9b2c2c; }
+    .dashboard-material-bar { display:flex; height:24px; border-radius:4px; overflow:hidden; background:var(--bg); }
+    .dashboard-material-bar .mat-seg { display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; min-width:0; overflow:hidden; white-space:nowrap; }
+    .dashboard-profit-positive { color:var(--accent); font-weight:700; }
+    .dashboard-profit-negative { color:#9b2c2c; font-weight:700; }
+    .dashboard-cost-tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; background:#eef4f1; color:#2d5a4a; }
+    .dashboard-margin-tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+    .dashboard-margin-tag.high { background:#dff0ed; color:#1e5854; }
+    .dashboard-margin-tag.mid { background:#fff7e6; color:#d48806; }
+    .dashboard-margin-tag.low { background:#fce4e4; color:#9b2c2c; }
+    .stock-risk-tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; }
+    .stock-risk-tag.high { background:#fce4e4; color:#9b2c2c; }
+    .stock-risk-tag.mid { background:#fff7e6; color:#d48806; }
+    .stock-risk-tag.low { background:#dff0ed; color:#1e5854; }
     .branch-card { display:grid;gap:8px; }
     .branch-card .branch-name { font-size:18px;font-weight:700;margin:0; }
     .branch-card .branch-default { display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#dff0ed;color:#1e5854; }
@@ -1071,6 +1119,14 @@ function page() {
         <h3>订单明细</h3>
         <div id="db-detail-list"></div>
       </div>
+      <div class="dashboard-section" id="db-material-cost-section">
+        <h3>材料消耗排行</h3>
+        <div id="db-material-consumption"></div>
+      </div>
+      <div class="dashboard-section" id="db-low-stock-section">
+        <h3>低库存风险</h3>
+        <div id="db-low-stock-list"></div>
+      </div>
     </div>
 
     <div class="tab-content" id="tab-branches">
@@ -1215,6 +1271,9 @@ function page() {
         <div class="row">
           <div><label>初始库存</label><input id="mm-stock" type="number" min="0" value="0"></div>
           <div><label>预警阈值</label><input id="mm-threshold" type="number" min="0" value="0"></div>
+        </div>
+        <div class="row">
+          <div><label>单位成本（元）</label><input id="mm-unit-cost" type="number" min="0" step="0.01" value="0" placeholder="单单位采购成本"></div>
         </div>
         <label>备注</label><textarea id="mm-note"></textarea>
       </div>
@@ -2471,6 +2530,8 @@ function page() {
             + '<div><span class="label">预估占用</span><span class="value">'+(m.reserved||0)+' '+m.unit+'</span></div>'
             + '<div><span class="label">可用库存</span><span class="value '+warnCls+'">'+available+' '+m.unit+'</span></div>'
             + '<div><span class="label">预警阈值</span><span class="value">'+(m.threshold||0)+' '+m.unit+'</span></div>'
+            + '<div><span class="label">单位成本</span><span class="value"><strong style="color:var(--warn);">¥'+(m.unitCost||0)+'</strong></span></div>'
+            + '<div><span class="label">库存估值</span><span class="value" style="color:var(--accent);">¥'+((available * (m.unitCost||0)).toFixed(2))+'</span></div>'
             + '</div>'
             + (m.isLow ? '<div class="order-card-stock warn">⚠️ 库存不足，建议及时补货</div>' : '')
             + actionsHtml
@@ -2594,13 +2655,14 @@ function page() {
       const statsEl = document.querySelector("#db-stats");
       const unpaid = d.totalReceivable - d.totalReceived;
       const collectionRate = d.totalReceivable > 0 ? Math.round(d.totalReceived / d.totalReceivable * 100) : 0;
+      const marginCls = d.overallGrossMargin >= 50 ? "high" : (d.overallGrossMargin >= 30 ? "mid" : "low");
       statsEl.innerHTML = ""
         + '<div class="dashboard-stat"><div class="ds-label">订单数量</div><div class="ds-value accent">' + d.orderCount + '</div><div class="meta" style="font-size:12px;color:var(--muted);">已完成 ' + d.completedCount + ' 单 · 完成率 ' + d.completionRate + '%</div></div>'
         + '<div class="dashboard-stat"><div class="ds-label">应收金额</div><div class="ds-value warn">¥' + d.totalReceivable.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">均价 ¥' + d.avgOrderValue.toLocaleString() + '</div></div>'
         + '<div class="dashboard-stat"><div class="ds-label">已收金额</div><div class="ds-value accent">¥' + d.totalReceived.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">收款率 ' + collectionRate + '%</div></div>'
-        + '<div class="dashboard-stat"><div class="ds-label">未收金额</div><div class="ds-value ' + (unpaid > 0 ? "warn" : "accent") + '">¥' + unpaid.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">' + (unpaid > 0 ? '待催收' : '已收清') + '</div></div>'
-        + '<div class="dashboard-stat"><div class="ds-label">逾期订单</div><div class="ds-value ' + (d.overdueCount > 0 ? "danger" : "accent") + '">' + d.overdueCount + '</div><div class="meta" style="font-size:12px;color:var(--muted);">' + (d.overdueCount > 0 ? '需尽快处理' : '按时交付中') + '</div></div>'
-        + '<div class="dashboard-stat"><div class="ds-label">负责人</div><div class="ds-value accent">' + Object.keys(d.ownerWorkload).length + '</div><div class="meta" style="font-size:12px;color:var(--muted);">参与交付</div></div>';
+        + '<div class="dashboard-stat"><div class="ds-label">材料预估成本</div><div class="ds-value warn">¥' + d.totalMaterialCost.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">单均 ¥' + d.avgMaterialCost.toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">预估毛利</div><div class="ds-value ' + (d.totalGrossProfit >= 0 ? "accent" : "danger") + '">¥' + d.totalGrossProfit.toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">毛利率 <span class="dashboard-margin-tag ' + marginCls + '">' + d.overallGrossMargin + '%</span></div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">逾期订单</div><div class="ds-value ' + (d.overdueCount > 0 ? "danger" : "accent") + '">' + d.overdueCount + '</div><div class="meta" style="font-size:12px;color:var(--muted);">' + (d.overdueCount > 0 ? '需尽快处理' : '按时交付中') + '</div></div>';
 
       const stageColors = ["#4a9e99", "#6bb8b3", "#e6a54a", "#c97b2a", "#9b2c2c"];
       const barEl = document.querySelector("#db-stage-bar");
@@ -2640,11 +2702,11 @@ function page() {
         }).join("");
       }
 
-      const overdueEl = document.querySelector("#db-overdue-list");
+      const overdueListEl = document.querySelector("#db-overdue-list");
       if (d.overdueOrders.length === 0) {
-        overdueEl.innerHTML = '<div class="dashboard-empty"><div class="empty-icon">✓</div><div class="empty-text">无逾期订单</div><div class="empty-sub">所有订单均在正常交付周期内</div></div>';
+        overdueListEl.innerHTML = '<div class="dashboard-empty"><div class="empty-icon">✓</div><div class="empty-text">无逾期订单</div><div class="empty-sub">所有订单均在正常交付周期内</div></div>';
       } else {
-        overdueEl.innerHTML = '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>委托人</th><th>鱼种</th><th>逾期天数</th><th>交付日期</th><th>当前阶段</th><th>负责人</th><th>金额</th></tr></thead><tbody>'
+        overdueListEl.innerHTML = '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>委托人</th><th>鱼种</th><th>逾期天数</th><th>交付日期</th><th>当前阶段</th><th>负责人</th><th>金额</th></tr></thead><tbody>'
           + d.overdueOrders.map(o => {
             const pi = getPaidInfo(o);
             return '<tr><td>' + o.id + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
@@ -2661,18 +2723,86 @@ function page() {
         detailEl.innerHTML = '<div class="dashboard-empty"><div class="empty-icon">📋</div><div class="empty-text">所选时段内暂无订单</div><div class="empty-sub">尝试切换筛选条件查看其他时间段的数据</div></div>';
       } else {
         detailEl.innerHTML = '<div style="margin-bottom:10px;font-size:13px;color:var(--muted);">共 ' + d.orders.length + ' 条订单记录，按逾期优先级和交付日期排序</div>'
-          + '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>委托人</th><th>鱼种</th><th>阶段</th><th>负责人</th><th>报价</th><th>收款状态</th><th>交付日期</th></tr></thead><tbody>'
+          + '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>委托人</th><th>鱼种</th><th>阶段</th><th>负责人</th><th>报价</th><th>材料成本</th><th>预估毛利</th><th>毛利率</th><th>收款状态</th><th>交付日期</th></tr></thead><tbody>'
           + d.orders.map(o => {
             const pi = getPaidInfo(o);
             const isOverdue = o.isOverdue;
+            const marginCls = o.grossMargin >= 50 ? "high" : (o.grossMargin >= 30 ? "mid" : "low");
             return '<tr><td>' + o.id + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
               + '<td>' + o.status + '</td><td>' + o.owner + '</td>'
               + '<td>¥' + (o.price || 0) + '</td>'
+              + '<td><span class="dashboard-cost-tag">¥' + o.materialCost.toLocaleString() + '</span></td>'
+              + '<td class="' + (o.grossProfit >= 0 ? 'dashboard-profit-positive' : 'dashboard-profit-negative') + '">¥' + o.grossProfit.toLocaleString() + '</td>'
+              + '<td><span class="dashboard-margin-tag ' + marginCls + '">' + o.grossMargin + '%</span></td>'
               + '<td><span class="dashboard-paid-badge ' + pi.cls + '">' + pi.text + '</span></td>'
               + '<td>' + (isOverdue ? '<span class="dashboard-overdue-badge">逾期 ' + o.daysOverdue + ' 天</span>' : o.dueDate) + '</td></tr>';
           }).join("")
           + '</tbody></table>';
       }
+
+      const matConsumeEl = document.querySelector("#db-material-consumption");
+      const matCostSection = document.querySelector("#db-material-cost-section");
+      if (!d.materialConsumption || d.materialConsumption.length === 0) {
+        matCostSection.style.display = "none";
+      } else {
+        matCostSection.style.display = "block";
+        matCostSection.querySelector("h3").textContent = "材料消耗排行（按成本）";
+        const matColors = ["#4a9e99", "#6bb8b3", "#e6a54a", "#c97b2a", "#9b2c2c", "#5a7fa8", "#8b6baa"];
+        const totalCost = d.materialConsumption.reduce((s, m) => s + m.totalCost, 0);
+        matConsumeEl.innerHTML = '<div style="margin-bottom:10px;font-size:13px;color:var(--muted);">共 ' + d.materialConsumption.length + ' 种材料，总成本 ¥' + totalCost.toLocaleString() + '</div>'
+          + '<div class="dashboard-material-bar" style="margin-bottom:10px;">'
+          + d.materialConsumption.map((m, i) => {
+            const pct = totalCost > 0 ? Math.round(m.totalCost / totalCost * 100) : 0;
+            if (pct === 0) return "";
+            const color = matColors[i % matColors.length];
+            return '<div class="mat-seg" style="width:' + pct + '%;background:' + color + ';" title="' + m.name + ': ¥' + m.totalCost.toLocaleString() + ' (' + pct + '%)">' + (pct >= 8 ? m.name + ' ' + pct + '%' : (pct >= 4 ? pct + '%' : '')) + '</div>';
+          }).join("")
+          + '</div>'
+          + '<table class="dashboard-detail-table"><thead><tr><th>排名</th><th>材料名称</th><th>分类</th><th>消耗数量</th><th>单位成本</th><th>消耗成本</th><th>占比</th></tr></thead><tbody>'
+          + d.materialConsumption.map((m, i) => {
+            const pct = totalCost > 0 ? Math.round(m.totalCost / totalCost * 100) : 0;
+            const color = matColors[i % matColors.length];
+            return '<tr><td><strong style="color:' + color + ';">#' + (i + 1) + '</strong></td>'
+              + '<td>' + m.name + '</td><td>' + (m.unit || "") + '</td>'
+              + '<td>' + m.totalQuantity + ' ' + (m.unit || "") + '</td>'
+              + '<td>¥' + (Number(m.totalCost / m.totalQuantity).toFixed(2) || 0) + '</td>'
+              + '<td><strong>¥' + m.totalCost.toLocaleString() + '</strong></td>'
+              + '<td><span class="dashboard-margin-tag ' + (pct >= 30 ? 'high' : (pct >= 15 ? 'mid' : 'low')) + '">' + pct + '%</span></td></tr>';
+          }).join("")
+          + '</tbody></table>';
+      }
+
+      const lowStockEl = document.querySelector("#db-low-stock-list");
+      const lowStockSection = document.querySelector("#db-low-stock-section");
+      if (!d.lowStockRisk || d.lowStockRisk.length === 0) {
+        lowStockSection.style.display = "none";
+      } else {
+        lowStockSection.style.display = "block";
+        lowStockSection.querySelector("h3").textContent = "低库存风险预警（" + d.lowStockRisk.length + " 项）";
+        lowStockEl.innerHTML = '<table class="dashboard-detail-table"><thead><tr><th>材料名称</th><th>分类</th><th>总库存</th><th>已预留</th><th>可用库存</th><th>预警阈值</th><th>单位成本</th><th>风险等级</th></tr></thead><tbody>'
+          + d.lowStockRisk.map(m => {
+            const ratio = m.threshold > 0 ? m.available / m.threshold : 0;
+            let riskCls = "mid";
+            let riskText = "中风险";
+            if (ratio <= 0.3) { riskCls = "high"; riskText = "高风险"; }
+            else if (ratio <= 0.7) { riskCls = "mid"; riskText = "中风险"; }
+            else { riskCls = "low"; riskText = "低风险"; }
+            return '<tr><td><strong>' + m.name + '</strong></td>'
+              + '<td>' + m.category + '</td>'
+              + '<td>' + m.stock + ' ' + m.unit + '</td>'
+              + '<td>' + m.reserved + ' ' + m.unit + '</td>'
+              + '<td class="' + (m.available <= 0 ? 'dashboard-profit-negative' : '') + '"><strong>' + m.available + ' ' + m.unit + '</strong></td>'
+              + '<td>' + m.threshold + ' ' + m.unit + '</td>'
+              + '<td>¥' + (m.unitCost || 0) + '</td>'
+              + '<td><span class="stock-risk-tag ' + riskCls + '">' + riskText + '</span></td></tr>';
+          }).join("")
+          + '</tbody></table>';
+      }
+
+      const ownerEl = document.querySelector("#db-owner-section");
+      ownerEl.style.display = "block";
+      const overdueSectionEl = document.querySelector("#db-overdue-section");
+      overdueSectionEl.style.display = "block";
     }
 
     function renderCrossBranchDashboard() {
@@ -2681,40 +2811,74 @@ function page() {
       document.querySelector("#db-date-range").textContent = d.startDate + " 至 " + d.endDate;
       const statsEl = document.querySelector("#db-stats");
       const unpaid = d.totalReceivable - d.totalReceived;
+      const marginCls = d.overallGrossMargin >= 50 ? "high" : (d.overallGrossMargin >= 30 ? "mid" : "low");
       statsEl.innerHTML = ""
         + '<div class="dashboard-stat"><div class="ds-label">订单总数</div><div class="ds-value accent">' + d.totalCount + '</div></div>'
-        + '<div class="dashboard-stat"><div class="ds-label">已完成</div><div class="ds-value accent">' + d.totalCompleted + '</div></div>'
         + '<div class="dashboard-stat"><div class="ds-label">应收金额</div><div class="ds-value warn">¥' + d.totalReceivable.toLocaleString() + '</div></div>'
         + '<div class="dashboard-stat"><div class="ds-label">已收金额</div><div class="ds-value accent">¥' + d.totalReceived.toLocaleString() + '</div></div>'
-        + '<div class="dashboard-stat"><div class="ds-label">未收金额</div><div class="ds-value ' + (unpaid > 0 ? "warn" : "accent") + '">¥' + unpaid.toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">材料成本</div><div class="ds-value warn">¥' + (d.totalMaterialCost || 0).toLocaleString() + '</div></div>'
+        + '<div class="dashboard-stat"><div class="ds-label">预估毛利</div><div class="ds-value ' + ((d.totalGrossProfit || 0) >= 0 ? "accent" : "danger") + '">¥' + (d.totalGrossProfit || 0).toLocaleString() + '</div><div class="meta" style="font-size:12px;color:var(--muted);">毛利率 <span class="dashboard-margin-tag ' + marginCls + '">' + (d.overallGrossMargin || 0) + '%</span></div></div>'
         + '<div class="dashboard-stat"><div class="ds-label">逾期订单</div><div class="ds-value ' + (d.totalOverdue > 0 ? "danger" : "accent") + '">' + d.totalOverdue + '</div></div>';
       const stageEl = document.querySelector("#db-stage-section");
-      stageEl.querySelector("h3").textContent = "分店对比";
+      stageEl.querySelector("h3").textContent = "分店对比（含成本分析）";
       const barEl = document.querySelector("#db-stage-bar");
       barEl.innerHTML = "";
       const legendEl = document.querySelector("#db-stage-legend");
       if (d.branchSummaries.length === 0) {
         legendEl.innerHTML = '<div style="color:var(--muted);">暂无分店数据</div>';
       } else {
-        legendEl.innerHTML = '<table class="cross-branch-table"><thead><tr><th>分店</th><th>订单数</th><th>已完成</th><th>应收</th><th>已收</th><th>逾期</th></tr></thead><tbody>'
-          + d.branchSummaries.map(b => '<tr><td><strong>' + b.branchName + '</strong></td><td>' + b.orderCount + '</td><td>' + b.completedCount + '</td><td>¥' + b.totalReceivable.toLocaleString() + '</td><td>¥' + b.totalReceived.toLocaleString() + '</td><td>' + b.overdueCount + '</td></tr>').join("")
+        const branchColors = ["#4a9e99", "#6bb8b3", "#e6a54a", "#c97b2a", "#9b2c2c", "#5a7fa8", "#8b6baa"];
+        const grandCost = d.totalMaterialCost || 0;
+        legendEl.innerHTML = '<div style="margin-bottom:12px;"><div style="font-size:13px;color:var(--muted);margin-bottom:6px;">各分店材料成本占比</div>'
+          + '<div class="dashboard-material-bar">'
+          + d.branchSummaries.map((b, i) => {
+            const pct = grandCost > 0 ? b.costRatio : 0;
+            if (pct === 0) return "";
+            const color = branchColors[i % branchColors.length];
+            return '<div class="mat-seg" style="width:' + pct + '%;background:' + color + ';" title="' + b.branchName + ': ¥' + b.totalMaterialCost.toLocaleString() + ' (' + pct + '%)">' + (pct >= 8 ? b.branchName + ' ' + pct + '%' : (pct >= 4 ? pct + '%' : '')) + '</div>';
+          }).join("")
+          + '</div></div>'
+          + '<table class="cross-branch-table"><thead><tr><th>分店</th><th>订单数</th><th>已完成</th><th>应收</th><th>材料成本</th><th>成本占比</th><th>预估毛利</th><th>毛利率</th><th>已收</th><th>逾期</th></tr></thead><tbody>'
+          + d.branchSummaries.map((b, i) => {
+            const bMarginCls = b.grossMargin >= 50 ? "high" : (b.grossMargin >= 30 ? "mid" : "low");
+            const color = branchColors[i % branchColors.length];
+            return '<tr><td><strong style="color:' + color + ';">' + b.branchName + '</strong></td>'
+              + '<td>' + b.orderCount + '</td><td>' + b.completedCount + '</td>'
+              + '<td>¥' + b.totalReceivable.toLocaleString() + '</td>'
+              + '<td><span class="dashboard-cost-tag">¥' + b.totalMaterialCost.toLocaleString() + '</span></td>'
+              + '<td><span class="dashboard-margin-tag ' + (b.costRatio >= 30 ? 'high' : (b.costRatio >= 15 ? 'mid' : 'low')) + '">' + b.costRatio + '%</span></td>'
+              + '<td class="' + (b.grossProfit >= 0 ? 'dashboard-profit-positive' : 'dashboard-profit-negative') + '">¥' + b.grossProfit.toLocaleString() + '</td>'
+              + '<td><span class="dashboard-margin-tag ' + bMarginCls + '">' + b.grossMargin + '%</span></td>'
+              + '<td>¥' + b.totalReceived.toLocaleString() + '</td>'
+              + '<td>' + b.overdueCount + '</td></tr>';
+          }).join("")
           + '</tbody></table>';
       }
       const ownerEl = document.querySelector("#db-owner-section");
       ownerEl.style.display = "none";
       const overdueEl = document.querySelector("#db-overdue-section");
       overdueEl.style.display = "none";
+      const matCostSection = document.querySelector("#db-material-cost-section");
+      matCostSection.style.display = "none";
+      const lowStockSection = document.querySelector("#db-low-stock-section");
+      lowStockSection.style.display = "none";
       const detailEl = document.querySelector("#db-detail-section");
       detailEl.querySelector("h3").textContent = "全部订单明细";
       if (d.allOrders.length === 0) {
         detailEl.innerHTML = '<h3>全部订单明细</h3><div class="dashboard-empty"><div class="empty-icon">📋</div><div class="empty-text">所选时段内暂无订单</div></div>';
       } else {
         detailEl.innerHTML = '<h3>全部订单明细</h3><div style="margin-bottom:10px;font-size:13px;color:var(--muted);">共 ' + d.allOrders.length + ' 条订单记录</div>'
-          + '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>分店</th><th>委托人</th><th>鱼种</th><th>阶段</th><th>负责人</th><th>报价</th><th>交付日期</th></tr></thead><tbody>'
-          + d.allOrders.map(o => '<tr><td>' + o.id + '</td><td>' + (o.branchName || "未知") + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
-            + '<td>' + o.status + '</td><td>' + o.owner + '</td>'
-            + '<td>¥' + (o.price || 0) + '</td>'
-            + '<td>' + o.dueDate + '</td></tr>').join("")
+          + '<table class="dashboard-detail-table"><thead><tr><th>订单号</th><th>分店</th><th>委托人</th><th>鱼种</th><th>阶段</th><th>负责人</th><th>报价</th><th>材料成本</th><th>预估毛利</th><th>毛利率</th><th>交付日期</th></tr></thead><tbody>'
+          + d.allOrders.map(o => {
+            const marginCls = o.grossMargin >= 50 ? "high" : (o.grossMargin >= 30 ? "mid" : "low");
+            return '<tr><td>' + o.id + '</td><td>' + (o.branchName || "未知") + '</td><td>' + o.client + '</td><td>' + o.fishSpecies + '</td>'
+              + '<td>' + o.status + '</td><td>' + o.owner + '</td>'
+              + '<td>¥' + (o.price || 0) + '</td>'
+              + '<td><span class="dashboard-cost-tag">¥' + (o.materialCost || 0).toLocaleString() + '</span></td>'
+              + '<td class="' + ((o.grossProfit || 0) >= 0 ? 'dashboard-profit-positive' : 'dashboard-profit-negative') + '">¥' + (o.grossProfit || 0).toLocaleString() + '</td>'
+              + '<td><span class="dashboard-margin-tag ' + marginCls + '">' + (o.grossMargin || 0) + '%</span></td>'
+              + '<td>' + o.dueDate + '</td></tr>';
+          }).join("")
           + '</tbody></table>';
       }
     }
@@ -2952,6 +3116,7 @@ function page() {
         document.querySelector("#mm-unit").value = m.unit || "";
         document.querySelector("#mm-stock").value = m.stock || 0;
         document.querySelector("#mm-threshold").value = m.threshold || 0;
+        document.querySelector("#mm-unit-cost").value = m.unitCost || 0;
         document.querySelector("#mm-note").value = m.note || "";
         document.querySelector("#mm-stock").disabled = true;
       } else {
@@ -2962,6 +3127,7 @@ function page() {
         document.querySelector("#mm-unit").value = "";
         document.querySelector("#mm-stock").value = 0;
         document.querySelector("#mm-threshold").value = 0;
+        document.querySelector("#mm-unit-cost").value = 0;
         document.querySelector("#mm-note").value = "";
         document.querySelector("#mm-stock").disabled = false;
       }
@@ -4444,6 +4610,7 @@ function page() {
       const unit = document.querySelector("#mm-unit").value.trim();
       const stock = Number(document.querySelector("#mm-stock").value || 0);
       const threshold = Number(document.querySelector("#mm-threshold").value || 0);
+      const unitCost = Number(document.querySelector("#mm-unit-cost").value || 0);
       const note = document.querySelector("#mm-note").value.trim();
       const errorEl = document.querySelector("#mm-error");
       if (!name) {
@@ -4460,12 +4627,12 @@ function page() {
         if (editingMaterialId) {
           await api("/api/materials/"+editingMaterialId, {
             method: "PUT",
-            body: JSON.stringify({ name, category, unit, threshold, note })
+            body: JSON.stringify({ name, category, unit, threshold, unitCost, note })
           });
         } else {
           await api("/api/materials", {
             method: "POST",
-            body: JSON.stringify({ name, category, unit, stock, threshold, note })
+            body: JSON.stringify({ name, category, unit, stock, threshold, unitCost, note })
           });
         }
         document.querySelector("#material-modal-overlay").classList.remove("active");
@@ -5139,6 +5306,7 @@ const server = http.createServer(async (req, res) => {
         stock: Number(input.stock || 0),
         reserved: 0,
         threshold: Number(input.threshold || 0),
+        unitCost: Number(input.unitCost || 0),
         note: input.note || "",
         branchId
       };
@@ -5264,6 +5432,7 @@ const server = http.createServer(async (req, res) => {
         if (input.category !== undefined) mat.category = input.category;
         if (input.unit !== undefined) mat.unit = input.unit;
         if (input.threshold !== undefined) mat.threshold = Number(input.threshold || 0);
+        if (input.unitCost !== undefined) mat.unitCost = Number(input.unitCost || 0);
         if (input.note !== undefined) mat.note = input.note || "";
         await saveDb(db);
         return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
@@ -5344,6 +5513,78 @@ const server = http.createServer(async (req, res) => {
       });
       const avgOrderValue = orderCount > 0 ? Math.round(totalReceivable / orderCount) : 0;
       const completionRate = orderCount > 0 ? Math.round(completedCount / orderCount * 100) : 0;
+
+      const branchMaterials = byBranch(db.materials || []);
+      let totalMaterialCost = 0;
+      const materialConsumptionMap = {};
+      const ordersWithCost = filtered.map(o => {
+        const costInfo = estimateOrderMaterialCost(o, branchMaterials);
+        totalMaterialCost += costInfo.totalCost;
+        for (const item of costInfo.breakdown) {
+          if (!materialConsumptionMap[item.materialId]) {
+            materialConsumptionMap[item.materialId] = {
+              materialId: item.materialId,
+              name: item.name,
+              unit: item.unit,
+              totalQuantity: 0,
+              totalCost: 0
+            };
+          }
+          materialConsumptionMap[item.materialId].totalQuantity += item.quantity;
+          materialConsumptionMap[item.materialId].totalCost += item.cost;
+        }
+        const price = o.price || 0;
+        const grossProfit = Number((price - costInfo.totalCost).toFixed(2));
+        const grossMargin = price > 0 ? Math.round(grossProfit / price * 100) : 0;
+        const isOverdue = o.status !== "已完成" && o.dueDate < todayStr;
+        const due = new Date(o.dueDate);
+        const now = new Date();
+        const daysOverdue = isOverdue ? Math.ceil((now - due) / (1000 * 60 * 60 * 24)) : 0;
+        return {
+          id: o.id, client: o.client, fishSpecies: o.fishSpecies,
+          size: o.size, status: o.status, owner: o.owner,
+          price, paid: o.paid, payments: o.payments || [],
+          dueDate: o.dueDate, mounting: o.mounting, paper: o.paper,
+          inkPlan: o.inkPlan, inscription: o.inscription,
+          history: o.history || [], isOverdue, daysOverdue,
+          materialCost: costInfo.totalCost,
+          materialBreakdown: costInfo.breakdown,
+          grossProfit,
+          grossMargin
+        };
+      }).sort((a, b) => {
+        if (a.isOverdue && !b.isOverdue) return -1;
+        if (!a.isOverdue && b.isOverdue) return 1;
+        if (a.isOverdue && b.isOverdue) return b.daysOverdue - a.daysOverdue;
+        return a.dueDate.localeCompare(b.dueDate);
+      });
+
+      totalMaterialCost = Number(totalMaterialCost.toFixed(2));
+      const totalGrossProfit = Number((totalReceivable - totalMaterialCost).toFixed(2));
+      const avgMaterialCost = orderCount > 0 ? Number((totalMaterialCost / orderCount).toFixed(2)) : 0;
+      const overallGrossMargin = totalReceivable > 0 ? Math.round(totalGrossProfit / totalReceivable * 100) : 0;
+
+      const materialConsumption = Object.values(materialConsumptionMap)
+        .sort((a, b) => b.totalCost - a.totalCost);
+
+      const lowStockRisk = branchMaterials
+        .filter(m => {
+          const available = (m.stock || 0) - (m.reserved || 0);
+          return available <= (m.threshold || 0);
+        })
+        .map(m => ({
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          unit: m.unit,
+          stock: m.stock || 0,
+          reserved: m.reserved || 0,
+          available: (m.stock || 0) - (m.reserved || 0),
+          threshold: m.threshold || 0,
+          unitCost: m.unitCost || 0
+        }))
+        .sort((a, b) => a.available - b.available);
+
       return sendJson(res, 200, {
         period,
         startDate,
@@ -5355,6 +5596,10 @@ const server = http.createServer(async (req, res) => {
         stageDistribution,
         totalReceivable,
         totalReceived,
+        totalMaterialCost,
+        totalGrossProfit,
+        avgMaterialCost,
+        overallGrossMargin,
         overdueCount: overdueOrders.length,
         overdueOrders: overdueOrders.map(o => {
           const due = new Date(o.dueDate);
@@ -5368,25 +5613,9 @@ const server = http.createServer(async (req, res) => {
           };
         }),
         ownerWorkload,
-        orders: filtered.map(o => {
-          const isOverdue = o.status !== "已完成" && o.dueDate < todayStr;
-          const due = new Date(o.dueDate);
-          const now = new Date();
-          const daysOverdue = isOverdue ? Math.ceil((now - due) / (1000 * 60 * 60 * 24)) : 0;
-          return {
-            id: o.id, client: o.client, fishSpecies: o.fishSpecies,
-            size: o.size, status: o.status, owner: o.owner,
-            price: o.price || 0, paid: o.paid, payments: o.payments || [],
-            dueDate: o.dueDate, mounting: o.mounting, paper: o.paper,
-            inkPlan: o.inkPlan, inscription: o.inscription,
-            history: o.history || [], isOverdue, daysOverdue
-          };
-        }).sort((a, b) => {
-          if (a.isOverdue && !b.isOverdue) return -1;
-          if (!a.isOverdue && b.isOverdue) return 1;
-          if (a.isOverdue && b.isOverdue) return b.daysOverdue - a.daysOverdue;
-          return a.dueDate.localeCompare(b.dueDate);
-        })
+        materialConsumption,
+        lowStockRisk,
+        orders: ordersWithCost
       });
     }
     if (req.method === "GET" && url.pathname === "/api/orders") {
@@ -6311,8 +6540,13 @@ const server = http.createServer(async (req, res) => {
         return created >= startDate && created <= endDate;
       });
       const branches = db.branches || [];
+      const allMaterials = db.materials || [];
+
+      let grandTotalMaterialCost = 0;
+      let grandTotalReceivable = 0;
       const branchSummaries = branches.map(b => {
         const bOrders = filtered.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === b.id);
+        const bMaterials = allMaterials.filter(m => (m.branchId || DEFAULT_BRANCH_ID) === b.id);
         const completed = bOrders.filter(o => o.status === "已完成");
         const totalReceivable = bOrders.reduce((s, o) => s + (o.price || 0), 0);
         const totalReceived = bOrders.reduce((s, o) => {
@@ -6320,6 +6554,13 @@ const server = http.createServer(async (req, res) => {
           return s + (o.paid ? (o.price || 0) : 0);
         }, 0);
         const overdue = bOrders.filter(o => !o.archived && o.dueDate && o.dueDate < todayStr && o.status !== "已完成");
+        const totalMaterialCost = bOrders.reduce((s, o) => {
+          return s + estimateOrderMaterialCost(o, bMaterials).totalCost;
+        }, 0);
+        const grossProfit = Number((totalReceivable - totalMaterialCost).toFixed(2));
+        const grossMargin = totalReceivable > 0 ? Math.round(grossProfit / totalReceivable * 100) : 0;
+        grandTotalMaterialCost += totalMaterialCost;
+        grandTotalReceivable += totalReceivable;
         return {
           branchId: b.id,
           branchName: b.name,
@@ -6327,13 +6568,37 @@ const server = http.createServer(async (req, res) => {
           completedCount: completed.length,
           totalReceivable,
           totalReceived,
-          overdueCount: overdue.length
+          overdueCount: overdue.length,
+          totalMaterialCost: Number(totalMaterialCost.toFixed(2)),
+          grossProfit,
+          grossMargin,
+          costRatio: 0
         };
       });
+
+      branchSummaries.forEach(b => {
+        b.costRatio = grandTotalMaterialCost > 0 ? Math.round(b.totalMaterialCost / grandTotalMaterialCost * 100) : 0;
+      });
+
+      const grandTotalGrossProfit = Number((grandTotalReceivable - grandTotalMaterialCost).toFixed(2));
+      const grandOverallMargin = grandTotalReceivable > 0 ? Math.round(grandTotalGrossProfit / grandTotalReceivable * 100) : 0;
+
       const allOrdersWithBranch = filtered.map(o => {
         const b = branches.find(br => br.id === (o.branchId || DEFAULT_BRANCH_ID));
-        return { ...o, branchName: b ? b.name : "未知分店" };
+        const bMaterials = allMaterials.filter(m => (m.branchId || DEFAULT_BRANCH_ID) === (o.branchId || DEFAULT_BRANCH_ID));
+        const costInfo = estimateOrderMaterialCost(o, bMaterials);
+        const price = o.price || 0;
+        const grossProfit = Number((price - costInfo.totalCost).toFixed(2));
+        const grossMargin = price > 0 ? Math.round(grossProfit / price * 100) : 0;
+        return {
+          ...o,
+          branchName: b ? b.name : "未知分店",
+          materialCost: costInfo.totalCost,
+          grossProfit,
+          grossMargin
+        };
       });
+
       return sendJson(res, 200, {
         period,
         startDate,
@@ -6341,11 +6606,14 @@ const server = http.createServer(async (req, res) => {
         branchSummaries,
         totalCount: filtered.length,
         totalCompleted: filtered.filter(o => o.status === "已完成").length,
-        totalReceivable: filtered.reduce((s, o) => s + (o.price || 0), 0),
+        totalReceivable: grandTotalReceivable,
         totalReceived: filtered.reduce((s, o) => {
           if (o.payments && o.payments.length) return s + o.payments.reduce((ps, p) => ps + p.amount, 0);
           return s + (o.paid ? (o.price || 0) : 0);
         }, 0),
+        totalMaterialCost: Number(grandTotalMaterialCost.toFixed(2)),
+        totalGrossProfit: grandTotalGrossProfit,
+        overallGrossMargin: grandOverallMargin,
         totalOverdue: filtered.filter(o => !o.archived && o.dueDate && o.dueDate < todayStr && o.status !== "已完成").length,
         allOrders: allOrdersWithBranch
       });

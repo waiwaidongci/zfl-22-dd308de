@@ -9,7 +9,8 @@
       "reserved": 2,
       "threshold": 10,
       "note": "四尺整纸规格 69x138cm",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 8
     },
     {
       "id": "M-002",
@@ -20,7 +21,8 @@
       "reserved": 0,
       "threshold": 15,
       "note": "四尺整纸规格 69x138cm",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 5
     },
     {
       "id": "M-003",
@@ -31,7 +33,8 @@
       "reserved": 0,
       "threshold": 15,
       "note": "四尺整纸规格 69x138cm",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 6
     },
     {
       "id": "M-004",
@@ -42,7 +45,8 @@
       "reserved": 6,
       "threshold": 100,
       "note": "松烟墨粉",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 0.5
     },
     {
       "id": "M-005",
@@ -53,7 +57,8 @@
       "reserved": 2,
       "threshold": 20,
       "note": "书画朱砂粉",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 3
     },
     {
       "id": "M-006",
@@ -64,7 +69,8 @@
       "reserved": 2,
       "threshold": 5,
       "note": "实木轴头，四尺用",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 15
     },
     {
       "id": "M-007",
@@ -75,7 +81,8 @@
       "reserved": 0,
       "threshold": 5,
       "note": "仿红木轴头，四尺用",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "unitCost": 25
     }
   ],
   "materialTransactions": [
@@ -440,5 +447,6 @@
     }
   ],
   "_branchMigrated": true,
-  "_customerMigrated": true
+  "_customerMigrated": true,
+  "_materialCostMigrated": true
 }
