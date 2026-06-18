@@ -1307,6 +1307,11 @@ function page() {
       renderOrders();
     }
 
+    function syncOrderSearchFromUI() {
+      const searchEl = document.querySelector("#order-search");
+      if (searchEl) orderFilters.search = searchEl.value;
+    }
+
     const OFFLINE_QUEUE_KEY = "zfl_offline_queue";
     const OFFLINE_CACHE_KEY = "zfl_offline_cache";
     const IDB_NAME = "ZFL_OfflineDB";
@@ -1956,8 +1961,9 @@ function page() {
       if (document.querySelector("#filter-due-end")) {
         document.querySelector("#filter-due-end").value = orderFilters.dueEnd;
       }
-      if (document.querySelector("#order-search")) {
-        document.querySelector("#order-search").value = orderFilters.search;
+      const searchEl = document.querySelector("#order-search");
+      if (searchEl && searchEl !== document.activeElement) {
+        searchEl.value = orderFilters.search;
       }
 
       const filtered = applyOrderFiltersToList(orders);
@@ -3731,8 +3737,8 @@ function page() {
       if (searchEl) {
         searchEl.addEventListener("input", () => {
           clearTimeout(searchTimer);
+          orderFilters.search = searchEl.value;
           searchTimer = setTimeout(() => {
-            orderFilters.search = searchEl.value;
             saveOrderFilters();
             renderOrders();
           }, 200);
@@ -3740,6 +3746,7 @@ function page() {
       }
       if (statusEl) {
         statusEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.status = statusEl.value;
           saveOrderFilters();
           renderOrders();
@@ -3747,6 +3754,7 @@ function page() {
       }
       if (clientEl) {
         clientEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.client = clientEl.value;
           saveOrderFilters();
           renderOrders();
@@ -3754,6 +3762,7 @@ function page() {
       }
       if (speciesEl) {
         speciesEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.species = speciesEl.value;
           saveOrderFilters();
           renderOrders();
@@ -3761,6 +3770,7 @@ function page() {
       }
       if (ownerEl) {
         ownerEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.owner = ownerEl.value;
           saveOrderFilters();
           renderOrders();
@@ -3768,6 +3778,7 @@ function page() {
       }
       if (paidEl) {
         paidEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.paid = paidEl.value;
           saveOrderFilters();
           renderOrders();
@@ -3775,6 +3786,7 @@ function page() {
       }
       if (dueStartEl) {
         dueStartEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.dueStart = dueStartEl.value;
           saveOrderFilters();
           renderOrders();
@@ -3782,6 +3794,7 @@ function page() {
       }
       if (dueEndEl) {
         dueEndEl.addEventListener("change", () => {
+          syncOrderSearchFromUI();
           orderFilters.dueEnd = dueEndEl.value;
           saveOrderFilters();
           renderOrders();
