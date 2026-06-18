@@ -593,12 +593,21 @@ function page() {
     .stock-row button { flex:1; }
     .tx-type-in { color:#246b68; }
     .tx-type-out { color:#9b2c2c; }
+    .tx-type-check { color:#a65b2a; }
     .tx-list { max-height:400px; overflow-y:auto; }
     .tx-item { display:grid; grid-template-columns:120px 1fr auto; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); align-items:center; font-size:13px; }
     .tx-item:last-child { border-bottom:none; }
     .tx-time { color:var(--muted); font-size:11px; }
     .tx-material { font-weight:600; }
     .tx-note { color:var(--muted); font-size:12px; }
+    .tx-diff-pos { color:#246b68; }
+    .tx-diff-neg { color:#9b2c2c; }
+    .tx-diff-zero { color:var(--muted); }
+    .stockcheck-compare { display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:center; background:var(--bg); padding:14px; border-radius:6px; margin-bottom:14px; }
+    .stockcheck-col { text-align:center; }
+    .stockcheck-col .label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+    .stockcheck-col strong { font-size:22px; }
+    .stockcheck-arrow { font-size:20px; color:var(--muted); }
     .form-estimate { margin-top:12px; padding:12px; background:var(--bg); border-radius:6px; display:none; }
     .form-estimate.active { display:block; }
     .estimate-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
@@ -1144,6 +1153,39 @@ function page() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
         <button class="secondary modal-close" id="si-close">取消</button>
         <button id="si-confirm">确认入库</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="stock-check-modal-overlay">
+    <div class="modal">
+      <h3 id="stockcheck-modal-title">库存盘点</h3>
+      <div class="modal-sub" id="stockcheck-modal-sub"></div>
+      <div class="stockcheck-compare">
+        <div class="stockcheck-col">
+          <span class="label">系统库存</span>
+          <strong id="sc-system-stock"></strong>
+        </div>
+        <div class="stockcheck-arrow">→</div>
+        <div class="stockcheck-col">
+          <span class="label">实际盘点</span>
+          <strong id="sc-diff-display" style="color:var(--warn);"></strong>
+        </div>
+      </div>
+      <label>实际库存数量</label><input id="sc-actual-stock" type="number" min="0" step="1" placeholder="请输入实际盘点数量">
+      <label>盘点原因</label>
+      <select id="sc-reason-select">
+        <option value="">请选择或填写原因</option>
+        <option value="日常盘点">日常盘点</option>
+        <option value="破损损耗">破损损耗</option>
+        <option value="录入错误修正">录入错误修正</option>
+        <option value="自然损耗">自然损耗</option>
+        <option value="其他">其他（请在下方备注说明</option>
+      </select>
+      <label>备注说明</label><textarea id="sc-reason-detail" placeholder="请输入详细说明（必填"></textarea>
+      <div id="sc-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+        <button class="secondary modal-close" id="sc-close">取消</button>
+        <button id="sc-confirm">确认盘点</button>
       </div>
     </div>
   </div>
@@ -2334,6 +2376,7 @@ function page() {
           const warnCls = m.isLow ? 'stock-warn' : 'stock-ok';
           const actionsHtml = isAllView ? '' : '<div class="stock-row">'
             + '<button data-stock-in="'+m.id+'">入库</button>'
+            + '<button data-stock-check="'+m.id+'" style="background:#a65b2a;">盘点</button>'
             + '<button class="secondary" data-edit-material="'+m.id+'">编辑</button>'
             + '</div>';
           return '<article class="card stock-card" data-material-id="'+m.id+'">'
@@ -2352,6 +2395,7 @@ function page() {
       }
 
       document.querySelectorAll("[data-stock-in]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openStockInModal(btn.dataset.stockIn); });
+      document.querySelectorAll("[data-stock-check]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openStockCheckModal(btn.dataset.stockCheck); });
       document.querySelectorAll("[data-edit-material]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openMaterialModal(btn.dataset.editMaterial); });
 
       const txFiltered = txMaterialFilter ? materialTransactions.filter(t => t.materialId === txMaterialFilter) : materialTransactions;
@@ -2359,11 +2403,30 @@ function page() {
         txListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">暂无流水记录</div>';
       } else {
         txListEl.innerHTML = txFiltered.slice(0, 100).map(t => {
-          const typeCls = t.type === "入库" ? "tx-type-in" : "tx-type-out";
-          const qtySign = t.type === "入库" ? "+" : "-";
+          let typeCls, qtySign;
+          if (t.type === "入库") {
+            typeCls = "tx-type-in";
+            qtySign = "+";
+          } else if (t.type === "盘点") {
+            typeCls = "tx-type-check";
+            if (t.diff > 0) qtySign = "+";
+            else if (t.diff < 0) qtySign = "-";
+            else qtySign = "";
+          } else {
+            typeCls = "tx-type-out";
+            qtySign = "-";
+          }
+          let qtyDisplay;
+          if (t.type === "盘点") {
+            const diffCls = t.diff > 0 ? "tx-diff-pos" : t.diff < 0 ? "tx-diff-neg" : "tx-diff-zero";
+            const diffText = t.diff > 0 ? "盘盈 +" + t.diff : t.diff < 0 ? "盘亏 " + t.diff : "无差异";
+            qtyDisplay = '<span class="' + diffCls + '"><strong>' + t.type + ' · ' + diffText + '</strong></span>';
+          } else {
+            qtyDisplay = '<span class="' + typeCls + '"><strong>' + t.type + ' ' + qtySign + t.quantity + ' ' + t.materialUnit + '</strong></span>';
+          }
           return '<div class="tx-item">'
             + '<div><div class="tx-material">'+t.materialName+'</div><div class="tx-time">'+fmtDate(t.at)+'</div></div>'
-            + '<div><div><span class="'+typeCls+'"><strong>'+t.type+' '+qtySign+t.quantity+' '+t.materialUnit+'</strong></span></div>'
+            + '<div><div>'+qtyDisplay+'</div>'
             + (t.note ? '<div class="tx-note">'+t.note+'</div>' : '')
             + (t.orderId ? '<div class="tx-note">关联订单：'+t.orderId+'</div>' : '')
             + '</div>'
@@ -2831,6 +2894,48 @@ function page() {
       document.querySelector("#si-note").value = "";
       document.querySelector("#si-error").style.display = "none";
       document.querySelector("#stock-in-modal-overlay").classList.add("active");
+    }
+
+    let stockCheckMaterialId = null;
+    function openStockCheckModal(materialId) {
+      const m = materials.find(x => x.id === materialId);
+      if (!m) return;
+      stockCheckMaterialId = materialId;
+      const currentStock = m.stock || 0;
+      document.querySelector("#stockcheck-modal-title").textContent = "库存盘点 · " + m.name;
+      document.querySelector("#stockcheck-modal-sub").textContent = "当前可用："+((m.stock||0)-(m.reserved||0))+" "+m.unit+" · 预估占用："+(m.reserved||0)+" "+m.unit;
+      document.querySelector("#sc-system-stock").textContent = currentStock + " " + m.unit;
+      document.querySelector("#sc-diff-display").textContent = "—";
+      document.querySelector("#sc-actual-stock").value = "";
+      document.querySelector("#sc-reason-select").value = "";
+      document.querySelector("#sc-reason-detail").value = "";
+      document.querySelector("#sc-error").style.display = "none";
+      document.querySelector("#stock-check-modal-overlay").classList.add("active");
+    }
+
+    function updateStockCheckDiff() {
+      if (!stockCheckMaterialId) return;
+      const m = materials.find(x => x.id === stockCheckMaterialId);
+      if (!m) return;
+      const systemStock = m.stock || 0;
+      const actualStock = Number(document.querySelector("#sc-actual-stock").value);
+      const diffEl = document.querySelector("#sc-diff-display");
+      if (Number.isNaN(actualStock) || actualStock < 0) {
+        diffEl.textContent = "—";
+        diffEl.style.color = "var(--warn)";
+        return;
+      }
+      const diff = actualStock - systemStock;
+      if (diff > 0) {
+        diffEl.textContent = actualStock + " " + m.unit + " (盘盈 +" + diff + ")";
+        diffEl.style.color = "#246b68";
+      } else if (diff < 0) {
+        diffEl.textContent = actualStock + " " + m.unit + " (盘亏 " + diff + ")";
+        diffEl.style.color = "#9b2c2c";
+      } else {
+        diffEl.textContent = actualStock + " " + m.unit + " (一致)";
+        diffEl.style.color = "var(--accent)";
+      }
     }
 
     function getOrderClass(order) {
@@ -4024,6 +4129,52 @@ function page() {
         materials = await api("/api/materials");
         materialTransactions = await api("/api/materials/transactions");
         renderMaterials();
+        renderOrders();
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    });
+
+    document.querySelector("#sc-close")?.addEventListener("click", () => {
+      document.querySelector("#stock-check-modal-overlay").classList.remove("active");
+      stockCheckMaterialId = null;
+    });
+    document.querySelector("#stock-check-modal-overlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "stock-check-modal-overlay") {
+        document.querySelector("#stock-check-modal-overlay").classList.remove("active");
+        stockCheckMaterialId = null;
+      }
+    });
+    document.querySelector("#sc-actual-stock")?.addEventListener("input", updateStockCheckDiff);
+    document.querySelector("#sc-confirm")?.addEventListener("click", async () => {
+      if (!stockCheckMaterialId) return;
+      const actualStock = Number(document.querySelector("#sc-actual-stock").value);
+      const reasonSelect = document.querySelector("#sc-reason-select").value;
+      const reasonDetail = document.querySelector("#sc-reason-detail").value.trim();
+      const errorEl = document.querySelector("#sc-error");
+      const fullReason = reasonSelect ? (reasonDetail ? reasonSelect + "：" + reasonDetail : reasonSelect) : reasonDetail;
+      if (Number.isNaN(actualStock) || actualStock < 0) {
+        errorEl.textContent = "请输入有效的实际库存数量";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!fullReason) {
+        errorEl.textContent = "请选择或填写盘点原因";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        await api("/api/materials/"+stockCheckMaterialId+"/stock-check", {
+          method: "POST",
+          body: JSON.stringify({ actualStock, reason: fullReason })
+        });
+        document.querySelector("#stock-check-modal-overlay").classList.remove("active");
+        stockCheckMaterialId = null;
+        materials = await api("/api/materials");
+        materialTransactions = await api("/api/materials/transactions");
+        renderMaterials();
+        renderOrders();
       } catch (e) {
         errorEl.textContent = e.message;
         errorEl.style.display = "block";
@@ -4662,6 +4813,38 @@ const server = http.createServer(async (req, res) => {
         after: mat.stock,
         orderId: null,
         note: input.note || "",
+        at: new Date().toISOString(),
+        branchId: mat.branchId || branchId
+      });
+      await saveDb(db);
+      return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
+    }
+    const stockCheckMatch = url.pathname.match(/^\/api\/materials\/([^/]+)\/stock-check$/);
+    if (stockCheckMatch && req.method === "POST") {
+      const mat = byBranch(db.materials).find(m => m.id === stockCheckMatch[1]);
+      if (!mat) return sendJson(res, 404, { error: "material_not_found" });
+      const input = await body(req);
+      const actualStock = Number(input.actualStock);
+      const reason = input.reason || "";
+      if (Number.isNaN(actualStock) || actualStock < 0) {
+        return sendJson(res, 400, { error: "实际库存必须为非负数" });
+      }
+      if (!reason.trim()) {
+        return sendJson(res, 400, { error: "请填写盘点原因" });
+      }
+      const before = mat.stock || 0;
+      const diff = actualStock - before;
+      mat.stock = actualStock;
+      db.materialTransactions.push({
+        id: `TX-${Date.now()}`,
+        materialId: mat.id,
+        type: "盘点",
+        quantity: Math.abs(diff),
+        diff,
+        before,
+        after: mat.stock,
+        orderId: null,
+        note: reason.trim(),
         at: new Date().toISOString(),
         branchId: mat.branchId || branchId
       });

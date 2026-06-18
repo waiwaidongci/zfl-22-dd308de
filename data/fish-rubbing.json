@@ -5,7 +5,7 @@
       "name": "手工楮皮纸",
       "category": "纸张",
       "unit": "张",
-      "stock": 50,
+      "stock": 48,
       "reserved": 2,
       "threshold": 10,
       "note": "四尺整纸规格 69x138cm",
@@ -78,7 +78,21 @@
       "branchId": "BR-DEFAULT"
     }
   ],
-  "materialTransactions": [],
+  "materialTransactions": [
+    {
+      "id": "TX-1781793460267",
+      "materialId": "M-001",
+      "type": "盘点",
+      "quantity": 2,
+      "diff": -2,
+      "before": 50,
+      "after": 48,
+      "orderId": null,
+      "note": "日常盘点：6月中旬定期库存清点，实际清点后比系统少2张",
+      "at": "2026-06-18T14:37:40.267Z",
+      "branchId": "BR-DEFAULT"
+    }
+  ],
   "orders": [
     {
       "id": "FT-2601",
