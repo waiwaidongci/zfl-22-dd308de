@@ -375,20 +375,12 @@ function enrichCustomer(customer, orders, works) {
   }, 0);
   const paperCount = {};
   const mountingCount = {};
-  const sortedItems = allItems.slice().sort((a, b) => {
-    const aTime = new Date(a.dueDate || a.completedAt || a.createdAt || 0).getTime();
-    const bTime = new Date(b.dueDate || b.completedAt || b.createdAt || 0).getTime();
-    return bTime - aTime;
-  });
   allItems.forEach(item => {
     if (item.paper) paperCount[item.paper] = (paperCount[item.paper] || 0) + 1;
     if (item.mounting) mountingCount[item.mounting] = (mountingCount[item.mounting] || 0) + 1;
   });
-  const autoPreferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  const autoPreferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  const lastInscription = sortedItems.find(item => item.inscription && item.inscription.trim())?.inscription || "";
-  const preferredPaper = customer.preferredPaper || autoPreferredPaper;
-  const preferredMounting = customer.preferredMounting || autoPreferredMounting;
+  const preferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const preferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
   const pendingOrders = cOrders.filter(o => o.status !== "已完成").length;
   return {
     ...customer,
@@ -398,10 +390,7 @@ function enrichCustomer(customer, orders, works) {
     totalPaid,
     totalSpent,
     preferredPaper,
-    preferredMounting,
-    lastInscription,
-    autoPreferredPaper,
-    autoPreferredMounting
+    preferredMounting
   };
 }
 
@@ -444,10 +433,6 @@ function page() {
     .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
     .toolbar select { width:auto; min-width:150px; }
     .toolbar .spacer { flex:1; }
-    .order-filters { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; align-items:center; }
-    .order-filters select { width:auto; min-width:140px; padding:7px 10px; }
-    .order-filters input[type="date"] { width:auto; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; }
-    .order-filters .search-box { flex-shrink:0; }
     .stat-total { grid-column:span 5; text-align:center; background:var(--accent); color:#fff; }
     .stat-total strong { color:#fff; }
     .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
@@ -593,21 +578,12 @@ function page() {
     .stock-row button { flex:1; }
     .tx-type-in { color:#246b68; }
     .tx-type-out { color:#9b2c2c; }
-    .tx-type-check { color:#a65b2a; }
     .tx-list { max-height:400px; overflow-y:auto; }
     .tx-item { display:grid; grid-template-columns:120px 1fr auto; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); align-items:center; font-size:13px; }
     .tx-item:last-child { border-bottom:none; }
     .tx-time { color:var(--muted); font-size:11px; }
     .tx-material { font-weight:600; }
     .tx-note { color:var(--muted); font-size:12px; }
-    .tx-diff-pos { color:#246b68; }
-    .tx-diff-neg { color:#9b2c2c; }
-    .tx-diff-zero { color:var(--muted); }
-    .stockcheck-compare { display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:center; background:var(--bg); padding:14px; border-radius:6px; margin-bottom:14px; }
-    .stockcheck-col { text-align:center; }
-    .stockcheck-col .label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
-    .stockcheck-col strong { font-size:22px; }
-    .stockcheck-arrow { font-size:20px; color:var(--muted); }
     .form-estimate { margin-top:12px; padding:12px; background:var(--bg); border-radius:6px; display:none; }
     .form-estimate.active { display:block; }
     .estimate-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
@@ -699,58 +675,7 @@ function page() {
     .cross-branch-table td { padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line); }
     .cross-branch-table tr:last-child td { border-bottom:none; }
     .tab.disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
-    .network-status { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--line); }
-    .network-status.online { background:#eef9f4; color:#246b68; border-color:#bcd8d4; }
-    .network-status.offline { background:#fce4e4; color:#9b2c2c; border-color:#e8b4b4; }
-    .network-status.syncing { background:#fff7e6; color:#d48806; border-color:#ffe58f; }
-    .network-status .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:currentColor; }
-    .network-status.online .status-dot { animation:pulse-dot 2s ease-in-out infinite; }
-    @keyframes pulse-dot { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
-    .pending-count { background:rgba(0,0,0,0.1); padding:1px 8px; border-radius:999px; font-size:11px; }
-    .sync-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
-    .sync-stats { display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; margin-bottom:16px; }
-    .sync-stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; text-align:center; }
-    .sync-stat strong { display:block; font-size:28px; }
-    .sync-stat .label { font-size:12px; color:var(--muted); }
-    .sync-stat.pending strong { color:#d48806; }
-    .sync-stat.success strong { color:#246b68; }
-    .sync-stat.failed strong { color:#9b2c2c; }
-    .sync-stat.conflict strong { color:#a65b2a; }
-    .sync-filters { display:flex; gap:8px; align-items:center; }
-    .sync-filters button { padding:6px 14px; background:transparent; border:1px solid var(--line); color:var(--muted); font-weight:600; border-radius:6px; cursor:pointer; font-size:13px; }
-    .sync-filters button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-    .sync-list { display:grid; gap:10px; }
-    .sync-item { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; display:grid; gap:8px; }
-    .sync-item .sync-header { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .sync-item .sync-title { font-weight:700; font-size:15px; }
-    .sync-item .sync-status-badge { padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
-    .sync-item.status-pending { border-left:4px solid #d48806; }
-    .sync-item.status-success { border-left:4px solid #246b68; }
-    .sync-item.status-failed { border-left:4px solid #9b2c2c; }
-    .sync-item.status-conflict { border-left:4px solid #a65b2a; }
-    .sync-item.status-syncing { border-left:4px solid #1890ff; opacity:0.7; }
-    .badge-pending { background:#fff7e6; color:#d48806; }
-    .badge-success { background:#eef9f4; color:#246b68; }
-    .badge-failed { background:#fce4e4; color:#9b2c2c; }
-    .badge-conflict { background:#fff3e0; color:#a65b2a; }
-    .badge-syncing { background:#e6f7ff; color:#1890ff; }
-    .sync-item .sync-meta { font-size:12px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }
-    .sync-item .sync-data { font-size:13px; background:var(--bg); padding:8px 12px; border-radius:6px; max-height:150px; overflow-y:auto; font-family:monospace; }
-    .sync-item .sync-error { font-size:13px; color:#9b2c2c; background:#fce4e4; padding:8px 12px; border-radius:6px; }
-    .sync-item .sync-actions { display:flex; gap:8px; flex-wrap:wrap; }
-    .sync-item .sync-actions button { padding:6px 12px; font-size:12px; }
-    .conflict-detail { background:#fff9f3; border:1px solid #f0c98a; border-radius:6px; padding:12px; margin-top:6px; }
-    .conflict-detail h5 { margin:0 0 8px; font-size:13px; color:#8a5a1e; }
-    .conflict-side-by-side { display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px; }
-    .conflict-box { background:#fff; border:1px solid var(--line); border-radius:6px; padding:10px; }
-    .conflict-box.server { border-color:#bcd8d4; }
-    .conflict-box.local { border-color:#ffe58f; }
-    .conflict-box .conflict-label { font-size:11px; font-weight:700; color:var(--muted); margin-bottom:6px; text-transform:uppercase; }
-    .conflict-box .conflict-field { padding:3px 0; border-bottom:1px dashed var(--line); display:flex; justify-content:space-between; }
-    .conflict-box .conflict-field:last-child { border-bottom:none; }
-    .conflict-box .field-name { color:var(--muted); }
-    .offline-tip { background:#fff7e6; border:1px solid #ffe58f; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#8a6d3b; display:flex; align-items:center; gap:8px; }
-    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } .sync-stats { grid-template-columns:1fr 1; } .conflict-side-by-side { grid-template-columns:1fr; } .order-filters { flex-direction:column; align-items:stretch; } .order-filters select, .order-filters input, .order-filters .search-box { width:100%; min-width:0; } }
+    @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } }
   </style>
 </head>
 <body>
@@ -760,14 +685,8 @@ function page() {
       <div class="meta">接单、拓印、装裱、交付 · 作品沉淀</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
-      <div id="network-status" class="network-status online" title="网络状态">
-        <span class="status-dot"></span>
-        <span class="status-text">在线</span>
-        <span id="pending-count" class="pending-count" style="display:none;">待同步 0</span>
-      </div>
       <select id="branch-selector" style="min-width:160px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;font:inherit;"></select>
       <button id="reload">刷新</button>
-      <button id="sync-now-btn" class="secondary" style="display:none;">立即同步</button>
     </div>
   </header>
   <main>
@@ -781,7 +700,6 @@ function page() {
       <div class="tab" data-tab="changes">变更审批</div>
       <div class="tab" data-tab="dashboard">经营看板</div>
       <div class="tab" data-tab="branches">分店管理</div>
-      <div class="tab" data-tab="sync">离线同步</div>
     </div>
 
     <div class="tab-content active" id="tab-orders">
@@ -805,10 +723,6 @@ function page() {
           </div>
           <label>鱼种</label><input name="fishSpecies" required>
           <label>拓印尺寸</label><input name="size" required>
-          <div id="customer-preferences-hint" style="display:none;margin:12px 0;padding:10px 12px;background:#e6f2f0;border:1px solid #bcd8d4;border-radius:6px;">
-            <div style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:6px;">💡 已自动填充客户偏好，提交前可手动修改</div>
-            <div id="pref-hint-details" style="font-size:12px;color:var(--muted);"></div>
-          </div>
           <label>纸张类型</label><input name="paper" required>
           <label>墨色方案</label><textarea name="inkPlan" required></textarea>
           <label>装裱方式</label><input name="mounting" required>
@@ -824,25 +738,7 @@ function page() {
         </form>
         <section>
           <div class="stats" id="stats"></div>
-          <div class="order-filters">
-            <div class="search-box" style="width:220px;">
-              <input id="order-search" placeholder="搜索客户/鱼种/编号">
-            </div>
-            <select id="filter-status"><option value="">全部状态</option></select>
-            <select id="filter-client"><option value="">全部客户</option></select>
-            <select id="order-filter-species"><option value="">全部鱼种</option></select>
-            <select id="filter-owner"><option value="">全部负责人</option></select>
-            <select id="filter-paid">
-              <option value="">全部收款状态</option>
-              <option value="full">已收款</option>
-              <option value="partial">部分收款</option>
-              <option value="none">未收款</option>
-            </select>
-            <input type="date" id="filter-due-start" title="交付日期起">
-            <span style="color:var(--muted);font-size:13px;">至</span>
-            <input type="date" id="filter-due-end" title="交付日期止">
-            <button class="secondary" id="order-filter-reset" style="padding:8px 14px;font-size:13px;">重置筛选</button>
-          </div>
+          <div class="toolbar"><select id="filter"></select></div>
           <div class="grid" id="orders"></div>
         </section>
       </div>
@@ -998,29 +894,6 @@ function page() {
       </div>
       <div class="grid" id="branches-grid"></div>
     </div>
-    <div class="tab-content" id="tab-sync">
-      <div id="sync-offline-tip" class="offline-tip" style="display:none;">
-        <span>📡</span> 当前处于离线状态，操作将暂存到本地，恢复连接后自动同步
-      </div>
-      <div class="sync-toolbar">
-        <div class="network-status online" id="sync-network-badge">
-          <span class="status-dot"></span>
-          <span class="status-text">在线</span>
-        </div>
-        <button id="sync-all-btn">立即同步</button>
-        <button id="sync-clear-done-btn" class="secondary">清除已完成</button>
-        <div class="spacer"></div>
-        <div class="sync-filters">
-          <button class="active" data-sync-filter="all">全部</button>
-          <button data-sync-filter="pending">待同步</button>
-          <button data-sync-filter="success">成功</button>
-          <button data-sync-filter="failed">失败</button>
-          <button data-sync-filter="conflict">冲突</button>
-        </div>
-      </div>
-      <div class="sync-stats" id="sync-stats"></div>
-      <div class="sync-list" id="sync-list"></div>
-    </div>
   </main>
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
@@ -1060,10 +933,6 @@ function page() {
         <label>联系电话</label><input id="cm-phone">
         <label>微信号</label><input id="cm-wechat">
         <label>地址</label><input id="cm-address">
-        <div class="divider" style="margin:14px 0;"></div>
-        <h4 style="margin:0 0 8px;font-size:14px;">客户偏好（选填，将作为新增委托的默认值）</h4>
-        <label>常用纸张 <span style="font-weight:400;color:var(--muted);">（留空则自动根据历史订单推断）</span></label><input id="cm-preferred-paper">
-        <label>常用装裱方式 <span style="font-weight:400;color:var(--muted);">（留空则自动根据历史订单推断）</span></label><input id="cm-preferred-mounting">
         <label>备注</label><textarea id="cm-note"></textarea>
       </div>
       <div id="cm-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
@@ -1153,39 +1022,6 @@ function page() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
         <button class="secondary modal-close" id="si-close">取消</button>
         <button id="si-confirm">确认入库</button>
-      </div>
-    </div>
-  </div>
-  <div class="modal-overlay" id="stock-check-modal-overlay">
-    <div class="modal">
-      <h3 id="stockcheck-modal-title">库存盘点</h3>
-      <div class="modal-sub" id="stockcheck-modal-sub"></div>
-      <div class="stockcheck-compare">
-        <div class="stockcheck-col">
-          <span class="label">系统库存</span>
-          <strong id="sc-system-stock"></strong>
-        </div>
-        <div class="stockcheck-arrow">→</div>
-        <div class="stockcheck-col">
-          <span class="label">实际盘点</span>
-          <strong id="sc-diff-display" style="color:var(--warn);"></strong>
-        </div>
-      </div>
-      <label>实际库存数量</label><input id="sc-actual-stock" type="number" min="0" step="1" placeholder="请输入实际盘点数量">
-      <label>盘点原因</label>
-      <select id="sc-reason-select">
-        <option value="">请选择或填写原因</option>
-        <option value="日常盘点">日常盘点</option>
-        <option value="破损损耗">破损损耗</option>
-        <option value="录入错误修正">录入错误修正</option>
-        <option value="自然损耗">自然损耗</option>
-        <option value="其他">其他（请在下方备注说明）</option>
-      </select>
-      <label>备注说明</label><textarea id="sc-reason-detail" placeholder="请输入详细说明（必填）"></textarea>
-      <div id="sc-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
-        <button class="secondary modal-close" id="sc-close">取消</button>
-        <button id="sc-confirm">确认盘点</button>
       </div>
     </div>
   </div>
@@ -1308,598 +1144,6 @@ function page() {
     let branches = [];
     let currentBranchId = DEFAULT_BRANCH_ID;
     let editingBranchId = null;
-    let syncFilter = "all";
-    let isOnline = true;
-    let isSyncing = false;
-    let syncAutoTimer = null;
-
-    const ORDER_FILTERS_KEY = "zfl_order_filters";
-    let orderFilters = {
-      search: "",
-      status: "",
-      client: "",
-      species: "",
-      owner: "",
-      paid: "",
-      dueStart: "",
-      dueEnd: ""
-    };
-
-    function saveOrderFilters() {
-      try {
-        localStorage.setItem(ORDER_FILTERS_KEY, JSON.stringify(orderFilters));
-      } catch (e) {}
-    }
-
-    function loadOrderFilters() {
-      try {
-        const saved = localStorage.getItem(ORDER_FILTERS_KEY);
-        if (saved) {
-          orderFilters = { ...orderFilters, ...JSON.parse(saved) };
-        }
-      } catch (e) {}
-    }
-
-    function applyOrderFiltersToUI() {
-      const el = (id) => document.querySelector(id);
-      if (el("#order-search")) el("#order-search").value = orderFilters.search;
-      if (el("#filter-status")) el("#filter-status").value = orderFilters.status;
-      if (el("#filter-client")) el("#filter-client").value = orderFilters.client;
-      if (el("#order-filter-species")) el("#order-filter-species").value = orderFilters.species;
-      if (el("#filter-owner")) el("#filter-owner").value = orderFilters.owner;
-      if (el("#filter-paid")) el("#filter-paid").value = orderFilters.paid;
-      if (el("#filter-due-start")) el("#filter-due-start").value = orderFilters.dueStart;
-      if (el("#filter-due-end")) el("#filter-due-end").value = orderFilters.dueEnd;
-    }
-
-    function resetOrderFilters() {
-      orderFilters = {
-        search: "",
-        status: "",
-        client: "",
-        species: "",
-        owner: "",
-        paid: "",
-        dueStart: "",
-        dueEnd: ""
-      };
-      saveOrderFilters();
-      applyOrderFiltersToUI();
-      renderOrders();
-    }
-
-    function syncOrderSearchFromUI() {
-      const searchEl = document.querySelector("#order-search");
-      if (searchEl) orderFilters.search = searchEl.value;
-    }
-
-    const OFFLINE_QUEUE_KEY = "zfl_offline_queue";
-    const OFFLINE_CACHE_KEY = "zfl_offline_cache";
-    const IDB_NAME = "ZFL_OfflineDB";
-    const IDB_VERSION = 1;
-    const IDB_STORE_QUEUE = "sync_queue";
-    const IDB_STORE_CACHE = "data_cache";
-    const idbPromise = (() => {
-      try {
-        if (!window.indexedDB) return Promise.reject(new Error("indexedDB_not_supported"));
-        return new Promise((resolve, reject) => {
-          const req = indexedDB.open(IDB_NAME, IDB_VERSION);
-          req.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains(IDB_STORE_QUEUE)) {
-              const s = db.createObjectStore(IDB_STORE_QUEUE, { keyPath: "opId" });
-              s.createIndex("status", "status", { unique: false });
-              s.createIndex("orderId", "orderId", { unique: false });
-              s.createIndex("createdAt", "createdAt", { unique: false });
-              s.createIndex("timestamp", "timestamp", { unique: false });
-            }
-            if (!db.objectStoreNames.contains(IDB_STORE_CACHE)) {
-              db.createObjectStore(IDB_STORE_CACHE, { keyPath: "key" });
-            }
-          };
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
-      } catch (e) {
-        return Promise.reject(e);
-      }
-    })();
-
-    async function idbRun(storeName, mode, fn) {
-      try {
-        const db = await idbPromise;
-        return new Promise((resolve, reject) => {
-          const tx = db.transaction(storeName, mode);
-          const store = tx.objectStore(storeName);
-          try {
-            const result = fn(store);
-            tx.oncomplete = () => resolve(result);
-            tx.onerror = () => reject(tx.error);
-            tx.onabort = () => reject(tx.error);
-          } catch (e) {
-            reject(e);
-          }
-        });
-      } catch (e) {
-        return null;
-      }
-    }
-
-    async function idbGetAll(storeName) {
-      const result = await idbRun(storeName, "readonly", (store) => {
-        const req = store.getAll();
-        return new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
-      });
-      return result || [];
-    }
-
-    async function idbPut(storeName, value) {
-      return idbRun(storeName, "readwrite", (store) => store.put(value));
-    }
-
-    async function idbDelete(storeName, keys) {
-      return idbRun(storeName, "readwrite", (store) => {
-        keys.forEach(k => store.delete(k));
-        return true;
-      });
-    }
-
-    function getOfflineQueueLS() {
-      try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]"); }
-      catch { return []; }
-    }
-
-    function saveOfflineQueueLS(queue) {
-      try {
-        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-      } catch (e) {}
-    }
-
-    async function getOfflineQueue() {
-      try {
-        const idbQueue = await idbGetAll(IDB_STORE_QUEUE);
-        if (idbQueue && idbQueue.length > 0) {
-          saveOfflineQueueLS(idbQueue);
-          return idbQueue;
-        }
-        return getOfflineQueueLS();
-      } catch (e) {
-        return getOfflineQueueLS();
-      }
-    }
-
-    async function saveOfflineQueue(queue) {
-      saveOfflineQueueLS(queue);
-      try {
-        const db = await idbPromise;
-        const tx = db.transaction(IDB_STORE_QUEUE, "readwrite");
-        const store = tx.objectStore(IDB_STORE_QUEUE);
-        store.clear();
-        for (const item of queue) store.put(item);
-      } catch (e) {}
-    }
-
-    async function addToOfflineQueue(entry) {
-      let queue = await getOfflineQueue();
-      queue.push(entry);
-      if (entry.type === "create_order") {
-        entry.orderId = entry.data._clientOrderId;
-      } else if (entry.type === "update_stage" || entry.type === "add_payment") {
-        entry.orderId = entry.data.orderId;
-      }
-      await saveOfflineQueue(queue);
-      updateNetworkUI();
-      if (currentTab === "sync") renderSync();
-    }
-
-    async function updateOfflineQueueItem(opId, updates) {
-      const queue = await getOfflineQueue();
-      const idx = queue.findIndex(q => q.opId === opId);
-      if (idx !== -1) {
-        Object.assign(queue[idx], updates);
-        await saveOfflineQueue(queue);
-      }
-    }
-
-    async function removeOfflineQueueItems(opIds) {
-      let queue = await getOfflineQueue();
-      queue = queue.filter(q => !opIds.includes(q.opId));
-      await saveOfflineQueue(queue);
-      try { await idbDelete(IDB_STORE_QUEUE, opIds); } catch (e) {}
-    }
-
-    function extractOrderIdFromOp(op) {
-      if (op.type === "create_order") return op.data._clientOrderId;
-      if (op.type === "update_stage" || op.type === "add_payment") return op.data.orderId;
-      return null;
-    }
-
-    function buildOperationChains(queue) {
-      const orderOps = new Map();
-      const sorted = [...queue].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      for (const op of sorted) {
-        const oid = extractOrderIdFromOp(op);
-        if (oid) {
-          if (!orderOps.has(oid)) orderOps.set(oid, []);
-          orderOps.get(oid).push(op);
-        }
-      }
-      return orderOps;
-    }
-
-    function consolidateStageUpdatesForOrder(orderId, ops, serverSnapshot) {
-      const stages = ops.filter(o => o.type === "update_stage");
-      if (stages.length <= 1) return null;
-      const lastStage = stages[stages.length - 1];
-      const allNotes = stages.map(s => s.data.note || "").filter(Boolean).join("；");
-      const timeline = stages.map(s => s.data.status + "@" + new Date(s.timestamp).toLocaleString()).join(" → ");
-      const hasForceOverride = stages.some(s => s.data && s.data.forceOverride === true);
-      const originalBaseline = stages
-        .map(s => s.data && s.data.baselineUpdatedAt)
-        .filter(Boolean)
-        .sort((a, b) => new Date(a) - new Date(b))[0] || lastStage.data.baselineUpdatedAt;
-      return {
-        opId: lastStage.opId,
-        type: "update_stage",
-        data: {
-          orderId,
-          status: lastStage.data.status,
-          note: allNotes + " [连续更新链：" + timeline + "]",
-          baselineUpdatedAt: originalBaseline,
-          forceOverride: hasForceOverride,
-          _consolidatedFrom: stages.map(s => s.opId)
-        },
-        status: "pending",
-        timestamp: lastStage.timestamp,
-        branchId: lastStage.branchId,
-        summary: "阶段更新(合并" + stages.length + "次) · " + orderId + " → " + lastStage.data.status,
-        createdAt: lastStage.createdAt
-      };
-    }
-
-    async function checkNetworkStatus() {
-      const wasOnline = isOnline;
-      isOnline = navigator.onLine;
-      await updateNetworkUI();
-      if (!wasOnline && isOnline) {
-        triggerSync();
-      }
-    }
-
-    async function updateNetworkUI() {
-      const ns = document.querySelector("#network-status");
-      const btn = document.querySelector("#sync-now-btn");
-      const tip = document.querySelector("#sync-offline-tip");
-      const badge = document.querySelector("#sync-network-badge");
-      const queue = await getOfflineQueue();
-      const pendingCount = queue.filter(q => q.status === "pending").length;
-
-      if (ns) {
-        ns.className = "network-status " + (isOnline ? "online" : "offline");
-        ns.querySelector(".status-text").textContent = isOnline ? "在线" : "离线";
-      }
-      if (badge) {
-        badge.className = "network-status " + (isOnline ? "online" : (isSyncing ? "syncing" : "offline"));
-        badge.querySelector(".status-text").textContent = isSyncing ? "同步中" : (isOnline ? "在线" : "离线");
-      }
-      const pc = document.querySelector("#pending-count");
-      if (pc) {
-        pc.style.display = pendingCount > 0 ? "" : "none";
-        pc.textContent = "待同步 " + pendingCount;
-      }
-      if (btn) btn.style.display = (!isOnline || pendingCount > 0) ? "" : "none";
-      if (tip) tip.style.display = isOnline ? "none" : "";
-    }
-
-    async function triggerSync() {
-      if (isSyncing || !isOnline) return;
-      const queue = await getOfflineQueue();
-      const pendingOps = queue.filter(q => q.status === "pending");
-      if (pendingOps.length === 0) return;
-
-      const orderChains = buildOperationChains(pendingOps);
-      const consolidatedOps = [];
-      const skipOpIds = new Set();
-
-      for (const [orderId, ops] of orderChains) {
-        const createOrder = ops.find(o => o.type === "create_order");
-        const stageUpdates = ops.filter(o => o.type === "update_stage");
-        const payments = ops.filter(o => o.type === "add_payment");
-
-        if (createOrder) {
-          consolidatedOps.push(createOrder);
-        }
-
-        if (stageUpdates.length > 1 && !createOrder) {
-          const consolidated = consolidateStageUpdatesForOrder(orderId, stageUpdates);
-          if (consolidated) {
-            stageUpdates.forEach(s => skipOpIds.add(s.opId));
-            consolidatedOps.push(consolidated);
-          } else {
-            stageUpdates.forEach(s => consolidatedOps.push(s));
-          }
-        } else {
-          stageUpdates.forEach(s => consolidatedOps.push(s));
-        }
-
-        payments.forEach(p => consolidatedOps.push(p));
-      }
-
-      const others = pendingOps.filter(o => !extractOrderIdFromOp(o));
-      others.forEach(o => consolidatedOps.push(o));
-
-      const finalOps = consolidatedOps
-        .filter(o => !skipOpIds.has(o.opId))
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-      const syncedOpIds = new Set(finalOps.map(o => o.opId));
-      for (const op of finalOps) {
-        if (op.data && op.data._consolidatedFrom) {
-          op.data._consolidatedFrom.forEach(cid => syncedOpIds.add(cid));
-        }
-      }
-
-      isSyncing = true;
-      await updateNetworkUI();
-      if (currentTab === "sync") renderSync();
-
-      const operations = finalOps.map(q => ({
-        id: q.opId,
-        type: q.type,
-        data: q.data,
-        timestamp: q.timestamp,
-        branchId: q.branchId || currentBranchId
-      }));
-
-      try {
-        const res = await fetch("/api/sync/batch?branchId=" + currentBranchId, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ operations, chainInfo: Object.fromEntries(orderChains) })
-        });
-        const result = await res.json();
-
-        if (result.idMapping && typeof result.idMapping === "object") {
-          for (const [localId, serverId] of Object.entries(result.idMapping)) {
-            await replaceLocalOrderIdWithServerId(localId, serverId);
-          }
-        }
-
-        for (let i = 0; i < result.results.length; i++) {
-          const r = result.results[i];
-          const op = finalOps[i];
-          if (!op) continue;
-
-          const affectedIds = (op.data && op.data._consolidatedFrom) ? [...op.data._consolidatedFrom, op.opId] : [op.opId];
-
-          for (const id of affectedIds) {
-            if (r.status === "success") {
-              await updateOfflineQueueItem(id, {
-                status: "success",
-                syncedAt: new Date().toISOString(),
-                resultData: r.data,
-                originalClientId: r.originalClientId,
-                _consolidated: id !== op.opId,
-                _chainInfo: op.data && op.data._consolidatedFrom ? { count: op.data._consolidatedFrom.length } : null
-              });
-            } else if (r.status === "conflict") {
-              await updateOfflineQueueItem(id, {
-                status: "conflict",
-                conflictData: r.conflict,
-                syncedAt: new Date().toISOString(),
-                _consolidated: id !== op.opId
-              });
-            } else {
-              await updateOfflineQueueItem(id, {
-                status: "failed",
-                error: r.error || "unknown_error",
-                syncedAt: new Date().toISOString(),
-                _consolidated: id !== op.opId
-              });
-            }
-          }
-        }
-      } catch (e) {
-        for (const id of syncedOpIds) {
-          await updateOfflineQueueItem(id, {
-            status: "failed",
-            error: e.message,
-            syncedAt: new Date().toISOString()
-          });
-        }
-      }
-
-      isSyncing = false;
-      await updateNetworkUI();
-      if (currentTab === "sync") renderSync();
-      await load();
-    }
-
-    function generateOpId() {
-      return "OP-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-    }
-
-    async function queueCreateOrder(payload) {
-      const clientOrderId = "LOCAL-" + Date.now();
-      const entry = {
-        opId: generateOpId(),
-        type: "create_order",
-        data: { ...payload, _clientOrderId: clientOrderId },
-        status: "pending",
-        timestamp: new Date().toISOString(),
-        branchId: currentBranchId,
-        summary: "新增委托 · " + (payload.fishSpecies || "") + " · " + (payload.client || payload.newCustomer?.name || ""),
-        createdAt: new Date().toISOString()
-      };
-      await addToOfflineQueue(entry);
-      return entry;
-    }
-
-    async function queueUpdateStage(orderId, status, note, baselineUpdatedAt) {
-      const order = orders.find(o => o.id === orderId);
-      const queue = await getOfflineQueue();
-      const allPriorUpdates = queue.filter(q =>
-        (q.status === "pending" || q.status === "conflict") &&
-        q.type === "update_stage" &&
-        (q.data.orderId === orderId || q.orderId === orderId)
-      );
-      const pendingUpdates = allPriorUpdates.filter(q => q.status === "pending");
-      let effectiveBaseline = baselineUpdatedAt;
-      if (!effectiveBaseline && allPriorUpdates.length > 0) {
-        effectiveBaseline = allPriorUpdates
-          .map(q => q.data && q.data.baselineUpdatedAt)
-          .filter(Boolean)
-          .sort((a, b) => new Date(a) - new Date(b))[0];
-      }
-      if (!effectiveBaseline && order) {
-        effectiveBaseline = (order.history && order.history.length > 0)
-          ? order.history[order.history.length - 1].at
-          : "";
-      }
-      const entry = {
-        opId: generateOpId(),
-        type: "update_stage",
-        data: { orderId, status, note, baselineUpdatedAt: effectiveBaseline, _chainLength: allPriorUpdates.length + 1 },
-        status: "pending",
-        timestamp: new Date().toISOString(),
-        branchId: currentBranchId,
-        summary: "阶段更新 · " + orderId + " → " + status + (pendingUpdates.length > 0 ? " (链" + (allPriorUpdates.length + 1) + ")" : ""),
-        createdAt: new Date().toISOString()
-      };
-      await addToOfflineQueue(entry);
-      return entry;
-    }
-
-    async function queueAddPayment(orderId, payment) {
-      const entry = {
-        opId: generateOpId(),
-        type: "add_payment",
-        data: { orderId, payment, forceOverride: false },
-        status: "pending",
-        timestamp: new Date().toISOString(),
-        branchId: currentBranchId,
-        summary: "登记收款 · " + orderId + " · " + payment.type + " ¥" + payment.amount,
-        createdAt: new Date().toISOString()
-      };
-      await addToOfflineQueue(entry);
-      return entry;
-    }
-
-    function applyOfflineCreateOrderToLocal(entry) {
-      const d = entry.data;
-      const clientOrderId = d._clientOrderId;
-      const materialUsage = {};
-      const fakeOrder = {
-        id: clientOrderId,
-        client: d.client || d.newCustomer?.name || "新客户",
-        fishSpecies: d.fishSpecies,
-        size: d.size,
-        paper: d.paper,
-        inkPlan: d.inkPlan,
-        mounting: d.mounting,
-        inscription: d.inscription || "",
-        owner: d.owner,
-        price: Number(d.price || 0),
-        paid: false,
-        payments: [],
-        status: "待拓印",
-        tasks: [{
-          id: "T-LOCAL-" + Date.now(),
-          stage: "待拓印",
-          assignee: d.owner || "未分配",
-          date: new Date().toISOString().slice(0, 10),
-          note: "新委托接单",
-          completed: false,
-          createdAt: entry.timestamp,
-          updatedAt: entry.timestamp
-        }],
-        history: [{ at: entry.timestamp, stage: "待拓印", note: "新委托接单（离线）" }],
-        dueDate: d.dueDate,
-        customerId: d.customerId || "",
-        branchId: currentBranchId,
-        _isOffline: true
-      };
-      return fakeOrder;
-    }
-
-    function applyOfflineStageUpdateToLocal(entry) {
-      const d = entry.data;
-      const order = orders.find(o => o.id === d.orderId);
-      if (!order) return null;
-      const oldStatus = order.status;
-      order.status = d.status;
-      if (!order.history) order.history = [];
-      order.history.push({ at: entry.timestamp, stage: d.status, note: (d.note || "阶段更新") + "（离线）" });
-      return order;
-    }
-
-    function applyOfflinePaymentToLocal(entry) {
-      const d = entry.data;
-      const order = orders.find(o => o.id === d.orderId);
-      if (!order) return null;
-      const payment = d.payment;
-      if (!order.payments) order.payments = [];
-      order.payments.push({
-        id: "PAY-LOCAL-" + Date.now(),
-        type: payment.type || "定金",
-        amount: Number(payment.amount || 0),
-        paidAt: payment.paidAt || new Date().toISOString().slice(0, 10),
-        note: (payment.note || "") + "（离线）",
-        _isOffline: true
-      });
-      const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
-      order.paid = totalPaid >= order.price;
-      return order;
-    }
-
-    async function applyAllOfflineOperationsToLocal() {
-      const queue = await getOfflineQueue();
-      const pendingOps = queue.filter(q => q.status === "pending");
-      for (const entry of pendingOps) {
-        if (entry.type === "create_order") {
-          const fake = applyOfflineCreateOrderToLocal(entry);
-          if (fake && !orders.find(o => o.id === fake.id)) {
-            orders.unshift(fake);
-          }
-        } else if (entry.type === "update_stage") {
-          applyOfflineStageUpdateToLocal(entry);
-        } else if (entry.type === "add_payment") {
-          applyOfflinePaymentToLocal(entry);
-        }
-      }
-    }
-
-    async function replaceLocalOrderIdWithServerId(localId, serverId) {
-      const idx = orders.findIndex(o => o.id === localId);
-      if (idx !== -1) {
-        orders[idx].id = serverId;
-        delete orders[idx]._isOffline;
-        const queue = await getOfflineQueue();
-        let changed = false;
-        for (const q of queue) {
-          if (q.type === "update_stage" && q.data && q.data.orderId === localId) {
-            q.data.orderId = serverId;
-            changed = true;
-          }
-          if (q.type === "add_payment" && q.data && q.data.orderId === localId) {
-            q.data.orderId = serverId;
-            changed = true;
-          }
-        }
-        if (changed) {
-          await saveOfflineQueue(queue);
-        }
-      }
-    }
-
-    window.addEventListener("online", () => {
-      isOnline = true;
-      checkNetworkStatus();
-    });
-    window.addEventListener("offline", () => {
-      isOnline = false;
-      checkNetworkStatus();
-    });
 
     async function api(path, options) {
       const sep = path.includes('?') ? '&' : '?';
@@ -1940,36 +1184,6 @@ function page() {
       return { text: "未收款", cls: "none", paidTotal: 0, unpaid: price };
     }
 
-    function applyOrderFiltersToList(list) {
-      const f = orderFilters;
-      return list.filter(o => {
-        if (f.status && o.status !== f.status) return false;
-        if (f.client && o.client !== f.client) return false;
-        if (f.species && o.fishSpecies !== f.species) return false;
-        if (f.owner && o.owner !== f.owner) return false;
-        if (f.paid) {
-          const pi = getPaidInfo(o);
-          if (f.paid === "full" && pi.cls !== "full") return false;
-          if (f.paid === "partial" && pi.cls !== "partial") return false;
-          if (f.paid === "none" && pi.cls !== "none") return false;
-        }
-        if (f.dueStart && o.dueDate && o.dueDate < f.dueStart) return false;
-        if (f.dueEnd && o.dueDate && o.dueDate > f.dueEnd) return false;
-        if (f.search) {
-          const kw = f.search.trim().toLowerCase();
-          if (kw) {
-            const matchClient = (o.client || "").toLowerCase().includes(kw);
-            const matchSpecies = (o.fishSpecies || "").toLowerCase().includes(kw);
-            const matchId = (o.id || "").toLowerCase().includes(kw);
-            const matchOwner = (o.owner || "").toLowerCase().includes(kw);
-            const matchInscription = (o.inscription || "").toLowerCase().includes(kw);
-            if (!matchClient && !matchSpecies && !matchId && !matchOwner && !matchInscription) return false;
-          }
-        }
-        return true;
-      });
-    }
-
     function renderOrders() {
       const formEl = document.querySelector("#form");
       if (formEl) formEl.style.display = currentBranchId === "__all__" ? "none" : "";
@@ -1979,58 +1193,13 @@ function page() {
         + customers.map(c => '<option value="'+c.id+'">'+c.name+(c.phone?' · '+c.phone:'')+'</option>').join("");
       customerSelect.value = prevCustomer;
 
-      const statusFilter = document.querySelector("#filter-status");
-      const clientFilter = document.querySelector("#filter-client");
-      const speciesFilter = document.querySelector("#order-filter-species");
-      const ownerFilter = document.querySelector("#filter-owner");
+      const filter = document.querySelector("#filter");
       const statsEl = document.querySelector("#stats");
       const ordersEl = document.querySelector("#orders");
-
-      if (statusFilter) {
-        const prev = statusFilter.value || orderFilters.status;
-        statusFilter.innerHTML = '<option value="">全部状态</option>' + stages.map(s => '<option>'+s+'</option>').join("");
-        statusFilter.value = prev;
-        orderFilters.status = prev;
-      }
-      if (clientFilter) {
-        const prev = clientFilter.value || orderFilters.client;
-        const clientSet = [...new Set(orders.map(o => o.client).filter(Boolean))].sort();
-        clientFilter.innerHTML = '<option value="">全部客户</option>' + clientSet.map(c => '<option>'+c+'</option>').join("");
-        clientFilter.value = prev;
-        orderFilters.client = prev;
-      }
-      if (speciesFilter) {
-        const prev = speciesFilter.value || orderFilters.species;
-        const speciesSet = [...new Set(orders.map(o => o.fishSpecies).filter(Boolean))].sort();
-        speciesFilter.innerHTML = '<option value="">全部鱼种</option>' + speciesSet.map(s => '<option>'+s+'</option>').join("");
-        speciesFilter.value = prev;
-        orderFilters.species = prev;
-      }
-      if (ownerFilter) {
-        const prev = ownerFilter.value || orderFilters.owner;
-        const ownerSet = [...new Set(orders.map(o => o.owner).filter(Boolean))].sort();
-        ownerFilter.innerHTML = '<option value="">全部负责人</option>' + ownerSet.map(o => '<option>'+o+'</option>').join("");
-        ownerFilter.value = prev;
-        orderFilters.owner = prev;
-      }
-      if (document.querySelector("#filter-paid")) {
-        document.querySelector("#filter-paid").value = orderFilters.paid;
-      }
-      if (document.querySelector("#filter-due-start")) {
-        document.querySelector("#filter-due-start").value = orderFilters.dueStart;
-      }
-      if (document.querySelector("#filter-due-end")) {
-        document.querySelector("#filter-due-end").value = orderFilters.dueEnd;
-      }
-      const searchEl = document.querySelector("#order-search");
-      if (searchEl && searchEl !== document.activeElement) {
-        searchEl.value = orderFilters.search;
-      }
-
-      const filtered = applyOrderFiltersToList(orders);
-      const counts = Object.fromEntries(stages.map(s => [s, filtered.filter(o => o.status === s).length]));
+      filter.innerHTML = '<option value="">全部状态</option>' + stages.map(s => '<option>'+s+'</option>').join("");
+      const counts = Object.fromEntries(stages.map(s => [s, orders.filter(o => o.status === s).length]));
       statsEl.innerHTML = stages.map(s => '<div class="stat"><span>'+s+'</span><strong>'+counts[s]+'</strong></div>').join("");
-      const list = filtered;
+      const list = filter.value ? orders.filter(o => o.status === filter.value) : orders;
       ordersEl.innerHTML = list.map(o => {
         const canArchive = o.status === "已完成" && !o.archived;
         const archiveBtn = o.status === "已完成"
@@ -2069,24 +1238,8 @@ function page() {
         const id = btn.dataset.save;
         const status = document.querySelector('[data-id="'+id+'"]').value;
         const note = document.querySelector('[data-note="'+id+'"]').value || "阶段更新";
-        try {
-          if (isOnline) {
-            await api('/api/orders/'+id+'/stage', { method:'POST', body: JSON.stringify({ status, note }) });
-            await load();
-          } else {
-            await queueUpdateStage(id, status, note);
-            await applyAllOfflineOperationsToLocal();
-            renderOrders();
-          }
-        } catch (e) {
-          if (!navigator.onLine || e.message === "Failed to fetch") {
-            await queueUpdateStage(id, status, note);
-            await applyAllOfflineOperationsToLocal();
-            renderOrders();
-          } else {
-            alert(e.message);
-          }
-        }
+        await api('/api/orders/'+id+'/stage', { method:'POST', body: JSON.stringify({ status, note }) });
+        await load();
       });
       document.querySelectorAll("[data-archive]").forEach(btn => btn.onclick = async () => {
         if (!requireBranch()) return;
@@ -2172,7 +1325,6 @@ function page() {
           const prefs = [];
           if (c.preferredPaper) prefs.push('<span class="pill">📄 '+c.preferredPaper+'</span>');
           if (c.preferredMounting) prefs.push('<span class="pill">🖼️ '+c.preferredMounting+'</span>');
-          if (c.lastInscription) prefs.push('<span class="pill">✍️ '+c.lastInscription+'</span>');
           const actionsHtml = isAllView
             ? '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button></div>'
             : '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button><button class="secondary" data-edit-customer="'+c.id+'">编辑</button></div>';
@@ -2202,7 +1354,6 @@ function page() {
     }
 
     let currentViewingCustomerId = null;
-    let lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
 
     async function renderCustomerDetail() {
       if (!currentViewingCustomerId) return;
@@ -2227,13 +1378,8 @@ function page() {
           + '<div class="info-row"><span class="info-label">完成作品</span><span class="info-value">'+(customer.workCount||0)+' 件</span></div>'
           + '<div class="info-row"><span class="info-label">未完成订单</span><span class="info-value" style="color:'+(customer.pendingOrders>0?'var(--warn)':'var(--ink)')+';">'+(customer.pendingOrders||0)+' 单</span></div>'
           + '<div class="info-row"><span class="info-label">累计消费</span><span class="info-value money">¥'+(customer.totalSpent||0)+'</span></div>'
-          + '<div class="divider" style="margin:10px 0;"></div>'
-          + '<div class="customer-preferences-block" style="padding:12px;background:var(--bg);border-radius:6px;margin-bottom:8px;">'
-          + '<div class="row" style="margin-bottom:8px;"><h4 style="margin:0;font-size:14px;">🎨 客户偏好</h4><button class="secondary" style="padding:4px 10px;font-size:12px;" id="cd-edit-prefs-btn">编辑偏好</button></div>'
-          + '<div class="info-row"><span class="info-label">📄 常用纸张</span><span class="info-value">'+(customer.preferredPaper||"—")+(customer.preferredPaper && customer.autoPreferredPaper && customer.preferredPaper !== customer.autoPreferredPaper ? ' <span style="font-size:11px;color:var(--accent);">(手动设置)</span>' : (customer.autoPreferredPaper ? ' <span style="font-size:11px;color:var(--muted);">(自动推断)</span>' : ''))+'</span></div>'
-          + '<div class="info-row"><span class="info-label">🖼️ 常用装裱</span><span class="info-value">'+(customer.preferredMounting||"—")+(customer.preferredMounting && customer.autoPreferredMounting && customer.preferredMounting !== customer.autoPreferredMounting ? ' <span style="font-size:11px;color:var(--accent);">(手动设置)</span>' : (customer.autoPreferredMounting ? ' <span style="font-size:11px;color:var(--muted);">(自动推断)</span>' : ''))+'</span></div>'
-          + '<div class="info-row"><span class="info-label">✍️ 最近题字</span><span class="info-value">'+(customer.lastInscription||"—")+'</span></div>'
-          + '</div>'
+          + '<div class="info-row"><span class="info-label">常用纸张</span><span class="info-value">'+(customer.preferredPaper||"—")+'</span></div>'
+          + '<div class="info-row"><span class="info-label">常用装裱</span><span class="info-value">'+(customer.preferredMounting||"—")+'</span></div>'
           + (customer.note ? '<div class="customer-note"><strong style="font-size:12px;color:var(--muted);">备注</strong><br>'+customer.note+'</div>' : '')
           + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">'
           + '<button data-edit-customer-btn="'+customer.id+'">编辑客户</button>'
@@ -2289,7 +1435,6 @@ function page() {
           renderCustomerDetail();
         });
         document.querySelector("[data-edit-customer-btn]")?.addEventListener("click", () => { if (!requireBranch()) return; openCustomerModal(customer.id); });
-        document.querySelector("#cd-edit-prefs-btn")?.addEventListener("click", () => { if (!requireBranch()) return; openCustomerModal(customer.id); });
         const delBtn = document.querySelector("[data-delete-customer-btn]");
         if (delBtn) delBtn.onclick = async () => {
           if (!requireBranch()) return;
@@ -2323,8 +1468,6 @@ function page() {
         document.querySelector("#cm-phone").value = c.phone || "";
         document.querySelector("#cm-wechat").value = c.wechat || "";
         document.querySelector("#cm-address").value = c.address || "";
-        document.querySelector("#cm-preferred-paper").value = c.preferredPaper || "";
-        document.querySelector("#cm-preferred-mounting").value = c.preferredMounting || "";
         document.querySelector("#cm-note").value = c.note || "";
       } else {
         title.textContent = "新增客户";
@@ -2333,8 +1476,6 @@ function page() {
         document.querySelector("#cm-phone").value = "";
         document.querySelector("#cm-wechat").value = "";
         document.querySelector("#cm-address").value = "";
-        document.querySelector("#cm-preferred-paper").value = "";
-        document.querySelector("#cm-preferred-mounting").value = "";
         document.querySelector("#cm-note").value = "";
       }
       overlay.classList.add("active");
@@ -2376,7 +1517,6 @@ function page() {
           const warnCls = m.isLow ? 'stock-warn' : 'stock-ok';
           const actionsHtml = isAllView ? '' : '<div class="stock-row">'
             + '<button data-stock-in="'+m.id+'">入库</button>'
-            + '<button data-stock-check="'+m.id+'" style="background:#a65b2a;">盘点</button>'
             + '<button class="secondary" data-edit-material="'+m.id+'">编辑</button>'
             + '</div>';
           return '<article class="card stock-card" data-material-id="'+m.id+'">'
@@ -2395,7 +1535,6 @@ function page() {
       }
 
       document.querySelectorAll("[data-stock-in]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openStockInModal(btn.dataset.stockIn); });
-      document.querySelectorAll("[data-stock-check]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openStockCheckModal(btn.dataset.stockCheck); });
       document.querySelectorAll("[data-edit-material]").forEach(btn => btn.onclick = () => { if (!requireBranch()) return; openMaterialModal(btn.dataset.editMaterial); });
 
       const txFiltered = txMaterialFilter ? materialTransactions.filter(t => t.materialId === txMaterialFilter) : materialTransactions;
@@ -2403,30 +1542,11 @@ function page() {
         txListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">暂无流水记录</div>';
       } else {
         txListEl.innerHTML = txFiltered.slice(0, 100).map(t => {
-          let typeCls, qtySign;
-          if (t.type === "入库") {
-            typeCls = "tx-type-in";
-            qtySign = "+";
-          } else if (t.type === "盘点") {
-            typeCls = "tx-type-check";
-            if (t.diff > 0) qtySign = "+";
-            else if (t.diff < 0) qtySign = "-";
-            else qtySign = "";
-          } else {
-            typeCls = "tx-type-out";
-            qtySign = "-";
-          }
-          let qtyDisplay;
-          if (t.type === "盘点") {
-            const diffCls = t.diff > 0 ? "tx-diff-pos" : t.diff < 0 ? "tx-diff-neg" : "tx-diff-zero";
-            const diffText = t.diff > 0 ? "盘盈 +" + t.diff : t.diff < 0 ? "盘亏 " + t.diff : "无差异";
-            qtyDisplay = '<span class="' + diffCls + '"><strong>' + t.type + ' · ' + diffText + '</strong></span>';
-          } else {
-            qtyDisplay = '<span class="' + typeCls + '"><strong>' + t.type + ' ' + qtySign + t.quantity + ' ' + t.materialUnit + '</strong></span>';
-          }
+          const typeCls = t.type === "入库" ? "tx-type-in" : "tx-type-out";
+          const qtySign = t.type === "入库" ? "+" : "-";
           return '<div class="tx-item">'
             + '<div><div class="tx-material">'+t.materialName+'</div><div class="tx-time">'+fmtDate(t.at)+'</div></div>'
-            + '<div><div>'+qtyDisplay+'</div>'
+            + '<div><div><span class="'+typeCls+'"><strong>'+t.type+' '+qtySign+t.quantity+' '+t.materialUnit+'</strong></span></div>'
             + (t.note ? '<div class="tx-note">'+t.note+'</div>' : '')
             + (t.orderId ? '<div class="tx-note">关联订单：'+t.orderId+'</div>' : '')
             + '</div>'
@@ -2894,48 +2014,6 @@ function page() {
       document.querySelector("#si-note").value = "";
       document.querySelector("#si-error").style.display = "none";
       document.querySelector("#stock-in-modal-overlay").classList.add("active");
-    }
-
-    let stockCheckMaterialId = null;
-    function openStockCheckModal(materialId) {
-      const m = materials.find(x => x.id === materialId);
-      if (!m) return;
-      stockCheckMaterialId = materialId;
-      const currentStock = m.stock || 0;
-      document.querySelector("#stockcheck-modal-title").textContent = "库存盘点 · " + m.name;
-      document.querySelector("#stockcheck-modal-sub").textContent = "当前可用："+((m.stock||0)-(m.reserved||0))+" "+m.unit+" · 预估占用："+(m.reserved||0)+" "+m.unit;
-      document.querySelector("#sc-system-stock").textContent = currentStock + " " + m.unit;
-      document.querySelector("#sc-diff-display").textContent = "—";
-      document.querySelector("#sc-actual-stock").value = "";
-      document.querySelector("#sc-reason-select").value = "";
-      document.querySelector("#sc-reason-detail").value = "";
-      document.querySelector("#sc-error").style.display = "none";
-      document.querySelector("#stock-check-modal-overlay").classList.add("active");
-    }
-
-    function updateStockCheckDiff() {
-      if (!stockCheckMaterialId) return;
-      const m = materials.find(x => x.id === stockCheckMaterialId);
-      if (!m) return;
-      const systemStock = m.stock || 0;
-      const actualStock = Number(document.querySelector("#sc-actual-stock").value);
-      const diffEl = document.querySelector("#sc-diff-display");
-      if (Number.isNaN(actualStock) || actualStock < 0) {
-        diffEl.textContent = "—";
-        diffEl.style.color = "var(--warn)";
-        return;
-      }
-      const diff = actualStock - systemStock;
-      if (diff > 0) {
-        diffEl.textContent = actualStock + " " + m.unit + " (盘盈 +" + diff + ")";
-        diffEl.style.color = "#246b68";
-      } else if (diff < 0) {
-        diffEl.textContent = actualStock + " " + m.unit + " (盘亏 " + diff + ")";
-        diffEl.style.color = "#9b2c2c";
-      } else {
-        diffEl.textContent = actualStock + " " + m.unit + " (一致)";
-        diffEl.style.color = "var(--accent)";
-      }
     }
 
     function getOrderClass(order) {
@@ -3419,7 +2497,6 @@ function page() {
       else if (currentTab === "changes") renderChanges();
       else if (currentTab === "dashboard") renderDashboard();
       else if (currentTab === "branches") renderBranches();
-      else if (currentTab === "sync") renderSync();
     }
 
     function activateTab(tabName) {
@@ -3432,7 +2509,7 @@ function page() {
     function updateTabAvailability() {
       const isAllView = currentBranchId === "__all__";
       document.querySelectorAll(".tab").forEach(t => {
-        const disabled = isAllView && t.dataset.tab !== "dashboard" && t.dataset.tab !== "sync";
+        const disabled = isAllView && t.dataset.tab !== "dashboard";
         t.classList.toggle("disabled", disabled);
         t.setAttribute("aria-disabled", disabled ? "true" : "false");
       });
@@ -3517,207 +2594,6 @@ function page() {
       overlay.classList.add("active");
     }
 
-    async function renderSync() {
-      const queue = await getOfflineQueue();
-      const filtered = syncFilter === "all" ? queue : queue.filter(q => q.status === syncFilter);
-      const pendingCount = queue.filter(q => q.status === "pending").length;
-      const successCount = queue.filter(q => q.status === "success").length;
-      const failedCount = queue.filter(q => q.status === "failed").length;
-      const conflictCount = queue.filter(q => q.status === "conflict").length;
-      const consolidatedCount = queue.filter(q => q._consolidated).length;
-
-      const statsEl = document.querySelector("#sync-stats");
-      if (statsEl) {
-        statsEl.innerHTML = '<div class="sync-stat pending"><strong>'+pendingCount+'</strong><div class="label">待同步</div></div>'
-          + '<div class="sync-stat success"><strong>'+successCount+'</strong><div class="label">已成功</div></div>'
-          + '<div class="sync-stat failed"><strong>'+failedCount+'</strong><div class="label">失败</div></div>'
-          + '<div class="sync-stat conflict"><strong>'+conflictCount+'</strong><div class="label">需人工确认</div></div>';
-      }
-
-      const listEl = document.querySelector("#sync-list");
-      if (!listEl) return;
-
-      if (filtered.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center;padding:48px;color:var(--muted);"><div style="font-size:48px;margin-bottom:12px;opacity:0.4;">📋</div><div style="font-size:15px;font-weight:600;margin-bottom:6px;">暂无同步记录</div><div style="font-size:13px;">离线操作将在此处显示同步状态</div></div>';
-        return;
-      }
-
-      const sorted = [...filtered].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      const orderChainsMap = new Map();
-      for (const item of sorted) {
-        const oid = extractOrderIdFromOp(item);
-        if (oid) {
-          if (!orderChainsMap.has(oid)) orderChainsMap.set(oid, []);
-          orderChainsMap.get(oid).push(item);
-        }
-      }
-
-      listEl.innerHTML = sorted.map(item => {
-        const typeLabel = item.type === "create_order" ? "新增委托" : (item.type === "update_stage" ? "阶段更新" : "登记收款");
-        let displayStatus = item.status;
-        if (item._consolidated && item.status === "success") displayStatus = "consolidated-success";
-        const statusText = item.status === "pending" ? "待同步" : item.status === "success" ? (item._consolidated ? "合并成功" : "成功") : item.status === "failed" ? "失败" : item.status === "conflict" ? "需人工确认" : "同步中";
-        const statusBadge = '<span class="sync-status-badge badge-'+(item._consolidated && item.status === "success" ? "success" : item.status)+'">'+statusText+'</span>';
-        const statusClass = "status-" + item.status + (item._consolidated ? ' consolidated-item' : '');
-        const chainInfo = (item.data && item.data._chainLength) ? '<span style="background:#fff3e0;color:#a65b2a;padding:1px 7px;border-radius:4px;font-size:11px;">链×' + item.data._chainLength + '</span>' : "";
-        const opIdShort = item.opId.replace(/^OP-/, "").slice(0, 12);
-
-        let detailHtml = "";
-        if (item.type === "create_order") {
-          const d = item.data;
-          detailHtml = '<div class="sync-data">'
-            + '<div>🐟 <strong>鱼种：</strong>'+(d.fishSpecies||"-")+'</div>'
-            + '<div>📐 <strong>尺寸：</strong>'+(d.size||"-")+'</div>'
-            + '<div>📄 <strong>纸张：</strong>'+(d.paper||"-")+'</div>'
-            + '<div>💰 <strong>报价：</strong>¥'+(d.price||0)+'</div>'
-            + '<div>👤 <strong>负责人：</strong>'+(d.owner||"-")+'</div>'
-            + '<div>📅 <strong>交付日期：</strong>'+(d.dueDate||"-")+'</div>'
-            + (d.newCustomer?.name ? '<div>👥 <strong>新客户：</strong>'+d.newCustomer.name+(d.newCustomer.phone?' · '+d.newCustomer.phone:'')+'</div>' : '')
-            + '</div>';
-        } else if (item.type === "update_stage") {
-          detailHtml = '<div class="sync-data">'
-            + '<div>📋 <strong>订单：</strong>'+item.data.orderId+'</div>'
-            + '<div>🔄 <strong>阶段：</strong>'+item.data.status+'</div>'
-            + '<div>📝 <strong>备注：</strong>'+(item.data.note||"-")+'</div>'
-            + (item.data._consolidatedFrom ? '<div>🔗 <strong>合并操作数：</strong>'+item.data._consolidatedFrom.length+'</div>' : '')
-            + '</div>';
-        } else if (item.type === "add_payment") {
-          const p = item.data.payment || {};
-          detailHtml = '<div class="sync-data">'
-            + '<div>📋 <strong>订单：</strong>'+item.data.orderId+'</div>'
-            + '<div>💳 <strong>类型：</strong>'+(p.type||"收款")+'</div>'
-            + '<div>💵 <strong>金额：</strong><span style="color:var(--warn);font-weight:700;">¥'+(p.amount||0)+'</span></div>'
-            + '<div>📅 <strong>日期：</strong>'+(p.paidAt||"-")+'</div>'
-            + (p.note ? '<div>📝 <strong>备注：</strong>'+p.note+'</div>' : '')
-            + '</div>';
-        }
-
-        let errorHtml = "";
-        if (item.status === "failed" && item.error) {
-          const errMap = {
-            "order_not_found": "订单不存在",
-            "unknown_operation_type": "未知操作类型",
-            "报价为空，无法登记收款": "报价为空，无法登记收款",
-            "收款金额必须大于0": "收款金额必须大于0"
-          };
-          const friendlyMsg = errMap[item.error] || item.error;
-          errorHtml = '<div class="sync-error"><strong>❌ 错误：</strong>'+friendlyMsg+'</div>';
-        }
-
-        let conflictHtml = "";
-        if (item.status === "conflict" && item.conflictData) {
-          const cd = item.conflictData;
-          if (item.type === "update_stage") {
-            const server = cd.serverSnapshot || {};
-            const local = cd.localChange || {};
-            const serverHist = (server.history || []).slice(-3).map(h => h.stage + "@" + fmtDate(h.at)).reverse().join(" → ");
-            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情：服务器端数据在此期间已有更新</h5>'
-              + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">建议：对比双方数据后选择「强制覆盖」或「放弃本地」</p>'
-              + '<div class="conflict-side-by-side">'
-              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器当前</div>'
-              + '<div class="conflict-field"><span class="field-name">状态</span><span style="color:#246b68;font-weight:700;">'+server.status+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">最后更新</span><span>'+(server.updatedAt ? fmtDate(server.updatedAt) + " " + new Date(server.updatedAt).toLocaleTimeString() : "-")+'</span></div>'
-              + (serverHist ? '<div class="conflict-field"><span class="field-name">近期历史</span><span style="font-size:11px;">'+serverHist+'</span></div>' : '')
-              + '</div>'
-              + '<div class="conflict-box local"><div class="conflict-label">📱 离线修改</div>'
-              + '<div class="conflict-field"><span class="field-name">目标状态</span><span style="color:#a65b2a;font-weight:700;">'+local.status+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">变更备注</span><span>'+(local.note||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">离线时间</span><span>'+(local.offlineAt?fmtDate(local.offlineAt)+" "+new Date(local.offlineAt).toLocaleTimeString():"-")+'</span></div>'
-              + '</div></div></div>';
-          } else if (item.type === "add_payment") {
-            const server = cd.serverSnapshot || {};
-            const local = cd.localChange || {};
-            const existingPayments = (server.payments || []).map(p => p.type + " ¥" + p.amount + " " + p.paidAt + (p.note ? " · " + p.note : "")).join("<br>");
-            const paidTotal = (server.payments || []).reduce((s,p) => s + (p.amount||0), 0);
-            const localAmt = (local.payment?.amount || 0);
-            const willOver = (server.paid ? "已收清" : "当前已收 ¥" + paidTotal + "，再加 ¥" + localAmt);
-            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情：疑似重复收款或超额收款</h5>'
-              + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">'+(cd.reason === "duplicate_payment" ? "检测到服务器已有相同类型、金额、日期的收款记录" : "收款金额可能超过应收")+'。确认后可选择「强制覆盖」。</p>'
-              + '<div class="conflict-side-by-side">'
-              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器收款记录</div>'
-              + '<div class="conflict-field"><span class="field-name">订单状态</span><span>'+(server.paid ? '<span style="color:#246b68;font-weight:700;">已收清</span>' : '<span style="color:#a65b2a;font-weight:700;">未收清</span>')+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">已有收款</span><span style="font-size:11px;text-align:right;line-height:1.6;">'+(existingPayments || "无")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">风险提示</span><span style="font-size:11px;">'+willOver+'</span></div>'
-              + '</div>'
-              + '<div class="conflict-box local"><div class="conflict-label">📱 离线提交</div>'
-              + '<div class="conflict-field"><span class="field-name">收款类型</span><span>'+(local.payment?.type||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">收款金额</span><span style="color:var(--warn);font-weight:700;">¥'+localAmt+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">收款日期</span><span>'+(local.payment?.paidAt||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">备注</span><span>'+(local.payment?.note||"-")+'</span></div>'
-              + '</div></div></div>';
-          } else if (item.type === "create_order") {
-            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情</h5>'
-              + '<div style="font-size:12px;color:var(--muted);padding:8px;background:#fff;border-radius:4px;">创建订单时发生冲突，请重试</div></div>';
-          }
-        }
-
-        let actionsHtml = "";
-        if (item.status === "pending") {
-          actionsHtml = '<div class="sync-actions"><button class="secondary" data-sync-discard="'+item.opId+'">取消此操作</button></div>';
-        } else if (item.status === "failed") {
-          actionsHtml = '<div class="sync-actions"><button data-sync-retry="'+item.opId+'">🔄 重试</button><button class="secondary" data-sync-discard="'+item.opId+'">删除记录</button></div>';
-        } else if (item.status === "conflict") {
-          actionsHtml = '<div class="sync-actions"><button data-sync-force="'+item.opId+'">✊ 强制使用本地</button><button class="secondary" data-sync-discard="'+item.opId+'">🤝 以服务器为准</button></div>';
-        } else if (item.status === "success") {
-          const timeAgo = item.syncedAt ? " · " + timeAgoText(item.syncedAt) : "";
-          actionsHtml = '<div class="sync-actions"><span style="font-size:12px;color:var(--accent);font-weight:600;">✓ 同步完成'+timeAgo+'</span></div>';
-        }
-
-        const metaChainInfo = item.orderId ? '<span style="background:var(--bg);padding:2px 7px;border-radius:4px;">📦 ' + item.orderId + '</span>' : "";
-        return '<div class="sync-item '+statusClass+'">'
-          + '<div class="sync-header"><span class="sync-title">'+typeLabel+'</span><span style="display:flex;gap:6px;align-items:center;">'+chainInfo+statusBadge+'</span></div>'
-          + '<div class="sync-meta"><span>'+item.summary+'</span><span>'+fmtDate(item.createdAt)+' '+new Date(item.createdAt).toLocaleTimeString()+'</span>'+metaChainInfo+'<span style="font-family:monospace;font-size:11px;color:var(--muted);">#'+opIdShort+'</span></div>'
-          + detailHtml
-          + errorHtml
-          + conflictHtml
-          + actionsHtml
-          + '</div>';
-      }).join("");
-
-      listEl.querySelectorAll("[data-sync-discard]").forEach(btn => {
-        btn.onclick = async () => {
-          if (!confirm("确认放弃此操作？")) return;
-          await removeOfflineQueueItems([btn.dataset.syncDiscard]);
-          await updateNetworkUI();
-          renderSync();
-        };
-      });
-      listEl.querySelectorAll("[data-sync-retry]").forEach(btn => {
-        btn.onclick = async () => {
-          await updateOfflineQueueItem(btn.dataset.syncRetry, { status: "pending", error: null });
-          renderSync();
-          await triggerSync();
-        };
-      });
-      listEl.querySelectorAll("[data-sync-force]").forEach(btn => {
-        btn.onclick = async () => {
-          const opId = btn.dataset.syncForce;
-          const queue = await getOfflineQueue();
-          const item = queue.find(q => q.opId === opId);
-          if (!item) return;
-          if (item.type === "add_payment" || item.type === "update_stage") {
-            item.data.forceOverride = true;
-          }
-          await saveOfflineQueue(queue);
-          await updateOfflineQueueItem(opId, { status: "pending", error: null, conflictData: null, data: item.data });
-          renderSync();
-          await triggerSync();
-        };
-      });
-    }
-
-    function timeAgoText(isoTime) {
-      const diff = Date.now() - new Date(isoTime).getTime();
-      const sec = Math.floor(diff / 1000);
-      if (sec < 60) return sec + "秒前";
-      const min = Math.floor(sec / 60);
-      if (min < 60) return min + "分钟前";
-      const hr = Math.floor(min / 60);
-      if (hr < 24) return hr + "小时前";
-      const day = Math.floor(hr / 24);
-      return day + "天前";
-    }
-
     document.querySelector("#branch-selector").onchange = (e) => {
       currentBranchId = e.target.value;
       if (currentBranchId === "__all__") {
@@ -3769,43 +2645,27 @@ function page() {
         materialTransactions = [];
         changeRequests = [];
         await loadDashboard();
-        updateNetworkUI();
         return;
       }
-      try {
-        orders = await api("/api/orders");
-        works = await api("/api/works");
-        customers = await api("/api/customers");
-        assignees = await api("/api/assignees");
-        materials = await api("/api/materials");
-        materialTransactions = await api("/api/materials/transactions");
-        changeRequests = await api("/api/change-requests");
-      } catch (e) {
-        if (!navigator.onLine) {
-          await applyAllOfflineOperationsToLocal();
-        } else {
-          throw e;
-        }
-      }
-      await applyAllOfflineOperationsToLocal();
-      loadOrderFilters();
-      applyOrderFiltersToUI();
+      orders = await api("/api/orders");
+      works = await api("/api/works");
+      customers = await api("/api/customers");
+      assignees = await api("/api/assignees");
+      materials = await api("/api/materials");
+      materialTransactions = await api("/api/materials/transactions");
+      changeRequests = await api("/api/change-requests");
       renderOrders();
       renderWorks();
       renderCustomers();
       renderMaterials();
       renderChanges();
       if (currentTab === "calendar") {
-        try {
-          calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
-          renderCalendar();
-        } catch (e) {}
+        calendarOrders = await api("/api/orders/calendar?year="+currentYear+"&month="+currentMonth);
+        renderCalendar();
       }
       if (currentTab === "schedule") {
-        try {
-          scheduleTasks = await loadScheduleTasks();
-          renderSchedule();
-        } catch (e) {}
+        scheduleTasks = await loadScheduleTasks();
+        renderSchedule();
       }
       if (currentTab === "dashboard") {
         await loadDashboard();
@@ -3813,10 +2673,6 @@ function page() {
       if (currentTab === "branches") {
         renderBranches();
       }
-      if (currentTab === "sync") {
-        renderSync();
-      }
-      await updateNetworkUI();
     }
 
     async function loadCalendar() {
@@ -3833,7 +2689,7 @@ function page() {
     }
 
     document.querySelectorAll(".tab").forEach(tab => tab.onclick = async () => {
-      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard" && tab.dataset.tab !== "sync") return;
+      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard") return;
       activateTab(tab.dataset.tab);
       if (currentTab === "calendar") {
         await loadCalendar();
@@ -3851,99 +2707,12 @@ function page() {
         await loadDashboard();
       } else if (currentTab === "branches") {
         renderBranches();
-      } else if (currentTab === "sync") {
-        renderSync();
       } else {
         render();
       }
     });
 
-    function bindOrderFilterEvents() {
-      const searchEl = document.querySelector("#order-search");
-      const statusEl = document.querySelector("#filter-status");
-      const clientEl = document.querySelector("#filter-client");
-      const speciesEl = document.querySelector("#order-filter-species");
-      const ownerEl = document.querySelector("#filter-owner");
-      const paidEl = document.querySelector("#filter-paid");
-      const dueStartEl = document.querySelector("#filter-due-start");
-      const dueEndEl = document.querySelector("#filter-due-end");
-      const resetEl = document.querySelector("#order-filter-reset");
-
-      let searchTimer = null;
-      if (searchEl) {
-        searchEl.addEventListener("input", () => {
-          clearTimeout(searchTimer);
-          orderFilters.search = searchEl.value;
-          searchTimer = setTimeout(() => {
-            saveOrderFilters();
-            renderOrders();
-          }, 200);
-        });
-      }
-      if (statusEl) {
-        statusEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.status = statusEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (clientEl) {
-        clientEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.client = clientEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (speciesEl) {
-        speciesEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.species = speciesEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (ownerEl) {
-        ownerEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.owner = ownerEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (paidEl) {
-        paidEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.paid = paidEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (dueStartEl) {
-        dueStartEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.dueStart = dueStartEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (dueEndEl) {
-        dueEndEl.addEventListener("change", () => {
-          syncOrderSearchFromUI();
-          orderFilters.dueEnd = dueEndEl.value;
-          saveOrderFilters();
-          renderOrders();
-        });
-      }
-      if (resetEl) {
-        resetEl.addEventListener("click", () => {
-          resetOrderFilters();
-        });
-      }
-    }
-    bindOrderFilterEvents();
-
+    document.querySelector("#filter").onchange = renderOrders;
     document.querySelector("#filter-species").onchange = renderWorks;
     document.querySelector("#filter-mounting").onchange = renderWorks;
     document.querySelector("#reload").onclick = load;
@@ -4129,52 +2898,6 @@ function page() {
         materials = await api("/api/materials");
         materialTransactions = await api("/api/materials/transactions");
         renderMaterials();
-        renderOrders();
-      } catch (e) {
-        errorEl.textContent = e.message;
-        errorEl.style.display = "block";
-      }
-    });
-
-    document.querySelector("#sc-close")?.addEventListener("click", () => {
-      document.querySelector("#stock-check-modal-overlay").classList.remove("active");
-      stockCheckMaterialId = null;
-    });
-    document.querySelector("#stock-check-modal-overlay")?.addEventListener("click", (e) => {
-      if (e.target.id === "stock-check-modal-overlay") {
-        document.querySelector("#stock-check-modal-overlay").classList.remove("active");
-        stockCheckMaterialId = null;
-      }
-    });
-    document.querySelector("#sc-actual-stock")?.addEventListener("input", updateStockCheckDiff);
-    document.querySelector("#sc-confirm")?.addEventListener("click", async () => {
-      if (!stockCheckMaterialId) return;
-      const actualStock = Number(document.querySelector("#sc-actual-stock").value);
-      const reasonSelect = document.querySelector("#sc-reason-select").value;
-      const reasonDetail = document.querySelector("#sc-reason-detail").value.trim();
-      const errorEl = document.querySelector("#sc-error");
-      const fullReason = reasonSelect ? (reasonDetail ? reasonSelect + "：" + reasonDetail : reasonSelect) : reasonDetail;
-      if (Number.isNaN(actualStock) || actualStock < 0) {
-        errorEl.textContent = "请输入有效的实际库存数量";
-        errorEl.style.display = "block";
-        return;
-      }
-      if (!fullReason) {
-        errorEl.textContent = "请选择或填写盘点原因";
-        errorEl.style.display = "block";
-        return;
-      }
-      try {
-        await api("/api/materials/"+stockCheckMaterialId+"/stock-check", {
-          method: "POST",
-          body: JSON.stringify({ actualStock, reason: fullReason })
-        });
-        document.querySelector("#stock-check-modal-overlay").classList.remove("active");
-        stockCheckMaterialId = null;
-        materials = await api("/api/materials");
-        materialTransactions = await api("/api/materials/transactions");
-        renderMaterials();
-        renderOrders();
       } catch (e) {
         errorEl.textContent = e.message;
         errorEl.style.display = "block";
@@ -4256,29 +2979,15 @@ function page() {
         return;
       }
       try {
-        if (isOnline) {
-          await api('/api/orders/'+currentPaymentOrderId+'/payments', {
-            method: 'POST',
-            body: JSON.stringify({ type, amount: Number(amount), paidAt, note })
-          });
-          await load();
-          openPaymentModal(currentPaymentOrderId);
-        } else {
-          await queueAddPayment(currentPaymentOrderId, { type, amount: Number(amount), paidAt, note });
-          await applyAllOfflineOperationsToLocal();
-          renderOrders();
-          openPaymentModal(currentPaymentOrderId);
-        }
+        await api('/api/orders/'+currentPaymentOrderId+'/payments', {
+          method: 'POST',
+          body: JSON.stringify({ type, amount: Number(amount), paidAt, note })
+        });
+        await load();
+        openPaymentModal(currentPaymentOrderId);
       } catch (e) {
-        if (!navigator.onLine || e.message === "Failed to fetch") {
-          await queueAddPayment(currentPaymentOrderId, { type, amount: Number(amount), paidAt, note });
-          await applyAllOfflineOperationsToLocal();
-          renderOrders();
-          openPaymentModal(currentPaymentOrderId);
-        } else {
-          errorEl.textContent = e.message;
-          errorEl.style.display = "block";
-        }
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
       }
     };
 
@@ -4337,58 +3046,17 @@ function page() {
       sub.classList.toggle("active");
       if (sub.classList.contains("active")) {
         document.querySelector("#customer-select").value = "";
-        document.querySelector("#customer-preferences-hint").style.display = "none";
-        lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
       }
     };
     document.querySelector("#customer-select").onchange = (e) => {
       if (e.target.value) {
         document.querySelector("#new-customer-subform").classList.remove("active");
-        const selectedId = e.target.value;
-        const cust = customers.find(c => c.id === selectedId);
-        if (cust) {
-          const form = document.querySelector("#form");
-          const prefHint = document.querySelector("#customer-preferences-hint");
-          const prefDetails = document.querySelector("#pref-hint-details");
-          const details = [];
-          const shouldRefreshPaper = !form.paper.value.trim() || form.paper.value === lastCustomerPreferenceAutofill.paper;
-          const shouldRefreshMounting = !form.mounting.value.trim() || form.mounting.value === lastCustomerPreferenceAutofill.mounting;
-          const shouldRefreshInscription = !form.inscription.value.trim() || form.inscription.value === lastCustomerPreferenceAutofill.inscription;
-          if (cust.preferredPaper && shouldRefreshPaper) {
-            form.paper.value = cust.preferredPaper;
-            details.push("📄 纸张："+cust.preferredPaper);
-          }
-          if (cust.preferredMounting && shouldRefreshMounting) {
-            form.mounting.value = cust.preferredMounting;
-            details.push("🖼️ 装裱："+cust.preferredMounting);
-          }
-          if (cust.lastInscription && shouldRefreshInscription) {
-            form.inscription.value = cust.lastInscription;
-            details.push("✍️ 题字："+cust.lastInscription);
-          }
-          lastCustomerPreferenceAutofill = {
-            paper: cust.preferredPaper || "",
-            mounting: cust.preferredMounting || "",
-            inscription: cust.lastInscription || ""
-          };
-          if (details.length > 0) {
-            prefDetails.innerHTML = details.join(" · ");
-            prefHint.style.display = "block";
-            form.paper.dispatchEvent(new Event("input"));
-          } else {
-            prefHint.style.display = "none";
-          }
-        }
-      } else {
-        document.querySelector("#customer-preferences-hint").style.display = "none";
-        lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
       }
     };
     document.querySelector("#quick-new-customer").onclick = () => {
       afterCustomerCreated = (newCust) => {
         document.querySelector("#customer-select").value = newCust.id;
         document.querySelector("#new-customer-subform").classList.remove("active");
-        document.querySelector("#customer-select").dispatchEvent(new Event("change"));
       };
       openCustomerModal();
     };
@@ -4431,36 +3099,14 @@ function page() {
       delete payload.newCustomerWechat;
       delete payload.newCustomerAddress;
       try {
-        if (isOnline) {
-          await api("/api/orders", { method:"POST", body: JSON.stringify(payload) });
-          form.reset();
-          document.querySelector("#new-customer-subform").classList.remove("active");
-          document.querySelector("#customer-preferences-hint").style.display = "none";
-          lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
-          await load();
-        } else {
-          await queueCreateOrder(payload);
-          form.reset();
-          document.querySelector("#new-customer-subform").classList.remove("active");
-          document.querySelector("#customer-preferences-hint").style.display = "none";
-          lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
-          await applyAllOfflineOperationsToLocal();
-          renderOrders();
-        }
+        await api("/api/orders", { method:"POST", body: JSON.stringify(payload) });
+        form.reset();
+        document.querySelector("#new-customer-subform").classList.remove("active");
+        await load();
       } catch (e) {
-        if (!navigator.onLine || e.message === "Failed to fetch") {
-          await queueCreateOrder(payload);
-          form.reset();
-          document.querySelector("#new-customer-subform").classList.remove("active");
-          document.querySelector("#customer-preferences-hint").style.display = "none";
-          lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
-          await applyAllOfflineOperationsToLocal();
-          renderOrders();
-        } else {
-          errorEl.className = "form-error";
-          errorEl.textContent = e.message;
-          form.appendChild(errorEl);
-        }
+        errorEl.className = "form-error";
+        errorEl.textContent = e.message;
+        form.appendChild(errorEl);
       }
     };
 
@@ -4494,8 +3140,6 @@ function page() {
       const phone = document.querySelector("#cm-phone").value.trim();
       const wechat = document.querySelector("#cm-wechat").value.trim();
       const address = document.querySelector("#cm-address").value.trim();
-      const preferredPaper = document.querySelector("#cm-preferred-paper").value.trim();
-      const preferredMounting = document.querySelector("#cm-preferred-mounting").value.trim();
       const note = document.querySelector("#cm-note").value.trim();
       const errorEl = document.querySelector("#cm-error");
       if (!name) {
@@ -4508,12 +3152,12 @@ function page() {
         if (editingCustomerId) {
           result = await api("/api/customers/"+editingCustomerId, {
             method: "PUT",
-            body: JSON.stringify({ name, phone, wechat, address, note, preferredPaper, preferredMounting })
+            body: JSON.stringify({ name, phone, wechat, address, note })
           });
         } else {
           result = await api("/api/customers", {
             method: "POST",
-            body: JSON.stringify({ name, phone, wechat, address, note, preferredPaper, preferredMounting })
+            body: JSON.stringify({ name, phone, wechat, address, note })
           });
         }
         document.querySelector("#customer-modal-overlay").classList.remove("active");
@@ -4667,32 +3311,7 @@ function page() {
     });
     document.querySelector("#task-delete-confirm")?.addEventListener("click", deleteTask);
 
-    document.querySelector("#sync-all-btn")?.addEventListener("click", async () => {
-      await triggerSync();
-    });
-    document.querySelector("#sync-clear-done-btn")?.addEventListener("click", async () => {
-      const queue = await getOfflineQueue();
-      const remaining = queue.filter(q => q.status !== "success" && q.status !== "failed");
-      await saveOfflineQueue(remaining);
-      await updateNetworkUI();
-      renderSync();
-    });
-    document.querySelector("#sync-now-btn")?.addEventListener("click", async () => {
-      await triggerSync();
-    });
-    document.querySelectorAll("[data-sync-filter]").forEach(btn => {
-      btn.onclick = () => {
-        document.querySelectorAll("[data-sync-filter]").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        syncFilter = btn.dataset.syncFilter;
-        renderSync();
-      };
-    });
-
-    (async () => {
-      await checkNetworkStatus();
-      load();
-    })();
+    load();
   </script>
 </body>
 </html>`;
@@ -4813,38 +3432,6 @@ const server = http.createServer(async (req, res) => {
         after: mat.stock,
         orderId: null,
         note: input.note || "",
-        at: new Date().toISOString(),
-        branchId: mat.branchId || branchId
-      });
-      await saveDb(db);
-      return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
-    }
-    const stockCheckMatch = url.pathname.match(/^\/api\/materials\/([^/]+)\/stock-check$/);
-    if (stockCheckMatch && req.method === "POST") {
-      const mat = byBranch(db.materials).find(m => m.id === stockCheckMatch[1]);
-      if (!mat) return sendJson(res, 404, { error: "material_not_found" });
-      const input = await body(req);
-      const actualStock = Number(input.actualStock);
-      const reason = input.reason || "";
-      if (Number.isNaN(actualStock) || actualStock < 0) {
-        return sendJson(res, 400, { error: "实际库存必须为非负数" });
-      }
-      if (!reason.trim()) {
-        return sendJson(res, 400, { error: "请填写盘点原因" });
-      }
-      const before = mat.stock || 0;
-      const diff = actualStock - before;
-      mat.stock = actualStock;
-      db.materialTransactions.push({
-        id: `TX-${Date.now()}`,
-        materialId: mat.id,
-        type: "盘点",
-        quantity: Math.abs(diff),
-        diff,
-        before,
-        after: mat.stock,
-        orderId: null,
-        note: reason.trim(),
         at: new Date().toISOString(),
         branchId: mat.branchId || branchId
       });
@@ -5414,8 +4001,6 @@ const server = http.createServer(async (req, res) => {
         wechat: input.wechat || "",
         address: input.address || "",
         note: input.note || "",
-        preferredPaper: input.preferredPaper || "",
-        preferredMounting: input.preferredMounting || "",
         createdAt: new Date().toISOString(),
         branchId
       };
@@ -5456,8 +4041,6 @@ const server = http.createServer(async (req, res) => {
         if (input.wechat !== undefined) customer.wechat = input.wechat;
         if (input.address !== undefined) customer.address = input.address;
         if (input.note !== undefined) customer.note = input.note;
-        if (input.preferredPaper !== undefined) customer.preferredPaper = input.preferredPaper || "";
-        if (input.preferredMounting !== undefined) customer.preferredMounting = input.preferredMounting || "";
         await saveDb(db);
         return sendJson(res, 200, enrichCustomer(customer, branchOrders, branchWorks));
       }
@@ -5842,313 +4425,6 @@ const server = http.createServer(async (req, res) => {
         allOrders: allOrdersWithBranch
       });
     }
-    if (req.method === "GET" && url.pathname.match(/^\/api\/orders\/([^/]+)\/snapshot$/)) {
-      const match = url.pathname.match(/^\/api\/orders\/([^/]+)\/snapshot$/);
-      const order = db.orders.find(item => item.id === match[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
-      if (!order) return sendJson(res, 404, { error: "order_not_found" });
-      return sendJson(res, 200, {
-        id: order.id,
-        status: order.status,
-        paid: order.paid,
-        payments: order.payments || [],
-        history: order.history || [],
-        updatedAt: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : new Date(0).toISOString()
-      });
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/sync/batch") {
-      const input = await body(req);
-      const operations = input.operations || [];
-      const chainInfo = input.chainInfo || {};
-      const results = [];
-      const localIdToServerId = new Map();
-      const batchPaymentByOrder = new Map();
-      const processedOrderIds = new Set();
-
-      for (let opIdx = 0; opIdx < operations.length; opIdx++) {
-        const op = operations[opIdx];
-        const result = { opId: op.id, type: op.type, status: "success", data: null, error: null, conflict: null };
-        try {
-          if (op.type === "create_order") {
-            const createInput = op.data;
-            let customerId = createInput.customerId;
-            let clientName = createInput.client;
-            if (createInput.newCustomer && createInput.newCustomer.name) {
-              const newCust = {
-                id: `C-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                name: createInput.newCustomer.name,
-                phone: createInput.newCustomer.phone || "",
-                wechat: createInput.newCustomer.wechat || "",
-                address: createInput.newCustomer.address || "",
-                note: createInput.newCustomer.note || "",
-                createdAt: new Date().toISOString(),
-                branchId
-              };
-              db.customers.push(newCust);
-              customerId = newCust.id;
-              clientName = newCust.name;
-            } else if (customerId) {
-              const cust = db.customers.find(c => c.id === customerId);
-              if (cust) clientName = cust.name;
-            }
-            const orderId = `FT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            const initialTasks = [
-              {
-                id: `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-1`,
-                stage: "待拓印",
-                assignee: createInput.owner || "未分配",
-                date: new Date().toISOString().slice(0, 10),
-                note: "新委托接单",
-                completed: false,
-                createdAt: op.timestamp || new Date().toISOString(),
-                updatedAt: op.timestamp || new Date().toISOString()
-              }
-            ];
-            const materialUsage = estimateMaterialUsage(createInput);
-            const order = {
-              id: orderId,
-              ...createInput,
-              customerId,
-              client: clientName || createInput.client,
-              price: Number(createInput.price || 0),
-              paid: false,
-              payments: [],
-              status: "待拓印",
-              tasks: initialTasks,
-              materialUsage,
-              history: [{ at: op.timestamp || new Date().toISOString(), stage: "待拓印", note: "新委托接单" }],
-              branchId,
-              offlineCreatedAt: op.timestamp
-            };
-            delete order.newCustomer;
-            const branchMaterials = byBranch(db.materials || []);
-            for (const [matId, qty] of Object.entries(materialUsage)) {
-              const mat = branchMaterials.find(m => m.id === matId);
-              if (mat) {
-                mat.reserved = (mat.reserved || 0) + qty;
-              }
-            }
-            db.orders.unshift(order);
-            result.data = order;
-            result.originalClientId = createInput._clientOrderId;
-            if (createInput._clientOrderId) {
-              localIdToServerId.set(createInput._clientOrderId, orderId);
-            }
-            processedOrderIds.add(orderId);
-          } else if (op.type === "update_stage") {
-            let effectiveOrderId = op.data.orderId;
-            if (localIdToServerId.has(effectiveOrderId)) {
-              effectiveOrderId = localIdToServerId.get(effectiveOrderId);
-            }
-            const order = db.orders.find(item => item.id === effectiveOrderId && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
-            if (!order) {
-              result.status = "failed";
-              result.error = "order_not_found";
-            } else {
-              const isSameBatchCreate = processedOrderIds.has(effectiveOrderId);
-              const serverLastUpdate = (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : new Date(0).toISOString();
-              const hasChainConflict = op.data.baselineUpdatedAt
-                && !isSameBatchCreate
-                && !op.data.forceOverride
-                && new Date(op.data.baselineUpdatedAt) < new Date(serverLastUpdate);
-              if (hasChainConflict) {
-                result.status = "conflict";
-                result.conflict = {
-                  serverSnapshot: {
-                    id: order.id,
-                    status: order.status,
-                    history: order.history || [],
-                    updatedAt: serverLastUpdate
-                  },
-                  localChange: { status: op.data.status, note: op.data.note, offlineAt: op.timestamp },
-                  reason: "server_updated_during_offline"
-                };
-              } else {
-                const oldStatus = order.status;
-                order.status = op.data.status;
-                const chainNote = (op.data._consolidatedFrom && op.data._consolidatedFrom.length > 1)
-                  ? (op.data.note || "") + ` [离线连续更新${op.data._consolidatedFrom.length}次]`
-                  : (op.data.note || "");
-                order.history.push({ at: op.timestamp || new Date().toISOString(), stage: op.data.status, note: chainNote });
-                processedOrderIds.add(effectiveOrderId);
-
-                if (op.data.status === "已完成" && oldStatus !== "已完成" && order.materialUsage && !order.materialDeducted) {
-                  const orderBranchId = order.branchId || branchId;
-                  const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
-                  for (const [matId, qty] of Object.entries(order.materialUsage)) {
-                    const mat = branchMaterials.find(m => m.id === matId);
-                    if (mat) {
-                      const beforeStock = mat.stock || 0;
-                      const beforeReserved = mat.reserved || 0;
-                      const actualDeductReserved = Math.min(qty, beforeReserved);
-                      mat.stock = Math.max(0, beforeStock - qty);
-                      mat.reserved = Math.max(0, beforeReserved - actualDeductReserved);
-                      db.materialTransactions.push({
-                        id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                        materialId: mat.id,
-                        materialName: mat.name,
-                        materialUnit: mat.unit,
-                        type: "出库",
-                        quantity: qty,
-                        before: beforeStock,
-                        after: mat.stock,
-                        orderId: order.id,
-                        note: `订单 ${order.id} 完成，扣减实际用量`,
-                        at: new Date().toISOString(),
-                        branchId: orderBranchId
-                      });
-                    }
-                  }
-                  order.materialDeducted = true;
-                }
-
-                if (op.data.status !== "已完成" && oldStatus === "已完成" && order.materialUsage && order.materialDeducted) {
-                  const orderBranchId = order.branchId || branchId;
-                  const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
-                  for (const [matId, qty] of Object.entries(order.materialUsage)) {
-                    const mat = branchMaterials.find(m => m.id === matId);
-                    if (mat) {
-                      const beforeStock = mat.stock || 0;
-                      mat.stock = beforeStock + qty;
-                      mat.reserved = (mat.reserved || 0) + qty;
-                      db.materialTransactions.push({
-                        id: `TX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                        materialId: mat.id,
-                        materialName: mat.name,
-                        materialUnit: mat.unit,
-                        type: "入库",
-                        quantity: qty,
-                        before: beforeStock,
-                        after: mat.stock,
-                        orderId: order.id,
-                        note: `订单 ${order.id} 状态回退，恢复材料`,
-                        at: new Date().toISOString(),
-                        branchId: orderBranchId
-                      });
-                    }
-                  }
-                  order.materialDeducted = false;
-                }
-
-                if (scheduleStages.includes(op.data.status)) {
-                  if (!order.tasks) order.tasks = [];
-                  const existingTask = order.tasks.find(t => t.stage === op.data.status);
-                  if (!existingTask) {
-                    const taskId = `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                    order.tasks.push({
-                      id: taskId,
-                      stage: op.data.status,
-                      assignee: order.owner || "未分配",
-                      date: new Date().toISOString().slice(0, 10),
-                      note: op.data.note || "",
-                      completed: false,
-                      createdAt: op.timestamp || new Date().toISOString(),
-                      updatedAt: op.timestamp || new Date().toISOString()
-                    });
-                  }
-                }
-                result.data = order;
-              }
-            }
-          } else if (op.type === "add_payment") {
-            let effectiveOrderId = op.data.orderId;
-            if (localIdToServerId.has(effectiveOrderId)) {
-              effectiveOrderId = localIdToServerId.get(effectiveOrderId);
-            }
-            const order = db.orders.find(item => item.id === effectiveOrderId && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
-            if (!order) {
-              result.status = "failed";
-              result.error = "order_not_found";
-            } else if (!order.price || order.price <= 0) {
-              result.status = "failed";
-              result.error = "报价为空，无法登记收款";
-            } else {
-              const payment = op.data.payment || {};
-              const newAmount = Number(payment.amount || 0);
-              if (newAmount <= 0) {
-                result.status = "failed";
-                result.error = "收款金额必须大于0";
-              } else {
-                if (!batchPaymentByOrder.has(effectiveOrderId)) {
-                  batchPaymentByOrder.set(effectiveOrderId, { total: 0, items: [] });
-                }
-                const batchInfo = batchPaymentByOrder.get(effectiveOrderId);
-
-                const existingPaidTotal = (order.payments || []).reduce((s, p) => s + p.amount, 0);
-                const batchPaidTotal = batchInfo.total;
-                const effectivePaid = (order.paid && existingPaidTotal === 0) ? order.price : existingPaidTotal;
-                const grandTotal = effectivePaid + batchPaidTotal + newAmount;
-
-                if (grandTotal > order.price && !op.data.forceOverride) {
-                  result.status = "conflict";
-                  result.conflict = {
-                    serverSnapshot: {
-                      payments: order.payments || [],
-                      paid: order.paid,
-                      price: order.price,
-                      existingPaid: effectivePaid,
-                      batchPending: batchPaidTotal
-                    },
-                    localChange: { payment, offlineAt: op.timestamp },
-                    reason: grandTotal > order.price ? "payment_overflows_total" : "duplicate_payment",
-                    overflowAmount: grandTotal - order.price
-                  };
-                } else {
-                  const recentDup = (order.payments || []).find(p =>
-                    p.type === payment.type && p.amount === newAmount && p.paidAt === payment.paidAt
-                  );
-                  const batchDup = batchInfo.items.find(p =>
-                    p.type === payment.type && p.amount === newAmount && p.paidAt === payment.paidAt
-                  );
-                  if ((recentDup || batchDup) && !op.data.forceOverride) {
-                    result.status = "conflict";
-                    result.conflict = {
-                      serverSnapshot: {
-                        payments: order.payments || [],
-                        paid: order.paid,
-                        price: order.price,
-                        existingPaid: effectivePaid,
-                        batchPayments: batchInfo.items
-                      },
-                      localChange: { payment, offlineAt: op.timestamp },
-                      reason: "duplicate_payment",
-                      duplicateInBatch: !!batchDup
-                    };
-                  } else {
-                    if (!order.payments) order.payments = [];
-                    const pay = {
-                      id: `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                      type: payment.type || "定金",
-                      amount: newAmount,
-                      paidAt: payment.paidAt || new Date().toISOString().slice(0, 10),
-                      note: (payment.note || "") + (batchInfo.items.length > 0 ? ` [离线连续收款${batchInfo.items.length + 1}笔]` : ""),
-                      offlineCreatedAt: op.timestamp
-                    };
-                    order.payments.push(pay);
-                    batchInfo.items.push(payment);
-                    batchInfo.total += newAmount;
-                    const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
-                    order.paid = totalPaid >= order.price;
-                    result.data = pay;
-                  }
-                }
-              }
-            }
-          } else {
-            result.status = "failed";
-            result.error = "unknown_operation_type";
-          }
-        } catch (err) {
-          result.status = "failed";
-          result.error = err.message;
-        }
-        results.push(result);
-      }
-
-      await saveDb(db);
-      return sendJson(res, 200, { results, idMapping: Object.fromEntries(localIdToServerId) });
-    }
-
     sendJson(res, 404, { error: "not_found" });
   } catch (error) {
     sendJson(res, 500, { error: error.message });
