@@ -120,6 +120,13 @@ function estimateOrderMaterialCost(order, materials) {
   };
 }
 
+function materialTransactionCostFields(material, quantity, direction = 1) {
+  const unitCost = Number(material?.unitCost || 0);
+  const totalCost = Number((Number(quantity || 0) * unitCost).toFixed(2));
+  const costImpact = Number((totalCost * direction).toFixed(2));
+  return { unitCost, totalCost, costImpact };
+}
+
 function formatPaymentRecord(payment) {
   if (!payment) return "无";
   return `${payment.type || "收款"} ¥${Number(payment.amount || 0)} · ${payment.paidAt || "-"}${payment.note ? ` · ${payment.note}` : ""}`;
@@ -2547,7 +2554,15 @@ function page() {
       if (txFiltered.length === 0) {
         txListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">暂无流水记录</div>';
       } else {
-        txListEl.innerHTML = txFiltered.slice(0, 100).map(t => {
+        const txCostIn = txFiltered.reduce((s, t) => s + Math.max(0, Number(t.costImpact || 0)), 0);
+        const txCostOut = txFiltered.reduce((s, t) => s + Math.abs(Math.min(0, Number(t.costImpact || 0))), 0);
+        const txCostNet = txFiltered.reduce((s, t) => s + Number(t.costImpact || 0), 0);
+        const txSummaryHtml = '<div class="stats" style="margin-bottom:12px;">'
+          + '<div class="stat"><span>入库/盘盈成本</span><strong style="color:var(--accent);">¥'+txCostIn.toFixed(2)+'</strong></div>'
+          + '<div class="stat"><span>出库/盘亏成本</span><strong style="color:#9b2c2c;">¥'+txCostOut.toFixed(2)+'</strong></div>'
+          + '<div class="stat stat-total"><span>库存成本净变动</span><strong>¥'+txCostNet.toFixed(2)+'</strong></div>'
+          + '</div>';
+        txListEl.innerHTML = txSummaryHtml + txFiltered.slice(0, 100).map(t => {
           let typeCls, qtySign;
           if (t.type === "入库") {
             typeCls = "tx-type-in";
@@ -2569,9 +2584,16 @@ function page() {
           } else {
             qtyDisplay = '<span class="' + typeCls + '"><strong>' + t.type + ' ' + qtySign + t.quantity + ' ' + t.materialUnit + '</strong></span>';
           }
+          const costImpact = Number(t.costImpact || 0);
+          const costCls = costImpact < 0 ? 'tx-diff-neg' : costImpact > 0 ? 'tx-diff-pos' : 'tx-diff-zero';
+          const costText = costImpact < 0 ? '-¥' + Math.abs(costImpact).toFixed(2) : (costImpact > 0 ? '+¥' : '¥') + costImpact.toFixed(2);
+          const costHtml = '<div class="tx-note">成本：¥' + Number(t.totalCost || 0).toFixed(2)
+            + ' · 单位成本 ¥' + Number(t.unitCost || 0).toFixed(2)
+            + ' · 影响 <span class="' + costCls + '">' + costText + '</span></div>';
           return '<div class="tx-item">'
             + '<div><div class="tx-material">'+t.materialName+'</div><div class="tx-time">'+fmtDate(t.at)+'</div></div>'
             + '<div><div>'+qtyDisplay+'</div>'
+            + costHtml
             + (t.note ? '<div class="tx-note">'+t.note+'</div>' : '')
             + (t.orderId ? '<div class="tx-note">关联订单：'+t.orderId+'</div>' : '')
             + '</div>'
@@ -5322,7 +5344,8 @@ const server = http.createServer(async (req, res) => {
           orderId: null,
           note: "初始库存",
           at: new Date().toISOString(),
-          branchId
+          branchId,
+          ...materialTransactionCostFields(mat, mat.stock, 1)
         });
       }
       await saveDb(db);
@@ -5362,7 +5385,17 @@ const server = http.createServer(async (req, res) => {
       list = [...list].sort((a, b) => new Date(b.at) - new Date(a.at));
       const withMaterial = list.map(t => {
         const mat = db.materials.find(m => m.id === t.materialId);
-        return { ...t, materialName: mat ? mat.name : "未知材料", materialUnit: mat ? mat.unit : "" };
+        const direction = t.costImpact !== undefined ? (t.costImpact < 0 ? -1 : 1) : (t.type === "出库" || (t.type === "盘点" && Number(t.diff || 0) < 0) ? -1 : 1);
+        const fallbackCost = materialTransactionCostFields(mat, t.quantity || 0, direction);
+        return {
+          ...fallbackCost,
+          ...t,
+          unitCost: t.unitCost !== undefined ? Number(t.unitCost || 0) : fallbackCost.unitCost,
+          totalCost: t.totalCost !== undefined ? Number(t.totalCost || 0) : fallbackCost.totalCost,
+          costImpact: t.costImpact !== undefined ? Number(t.costImpact || 0) : fallbackCost.costImpact,
+          materialName: mat ? mat.name : "未知材料",
+          materialUnit: mat ? mat.unit : ""
+        };
       });
       return sendJson(res, 200, withMaterial);
     }
@@ -5385,7 +5418,8 @@ const server = http.createServer(async (req, res) => {
         orderId: null,
         note: input.note || "",
         at: new Date().toISOString(),
-        branchId: mat.branchId || branchId
+        branchId: mat.branchId || branchId,
+        ...materialTransactionCostFields(mat, qty, 1)
       });
       await saveDb(db);
       return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
@@ -5417,7 +5451,8 @@ const server = http.createServer(async (req, res) => {
         orderId: null,
         note: reason.trim(),
         at: new Date().toISOString(),
-        branchId: mat.branchId || branchId
+        branchId: mat.branchId || branchId,
+        ...materialTransactionCostFields(mat, Math.abs(diff), diff >= 0 ? 1 : -1)
       });
       await saveDb(db);
       return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
@@ -5917,7 +5952,8 @@ const server = http.createServer(async (req, res) => {
               orderId: order.id,
               note: `订单 ${order.id} 完成，扣减实际用量`,
               at: new Date().toISOString(),
-              branchId: orderBranchId
+              branchId: orderBranchId,
+              ...materialTransactionCostFields(mat, qty, -1)
             });
           }
         }
@@ -5945,7 +5981,8 @@ const server = http.createServer(async (req, res) => {
               orderId: order.id,
               note: `订单 ${order.id} 状态回退，恢复材料`,
               at: new Date().toISOString(),
-              branchId: orderBranchId
+              branchId: orderBranchId,
+              ...materialTransactionCostFields(mat, qty, 1)
             });
           }
         }
@@ -6474,7 +6511,8 @@ const server = http.createServer(async (req, res) => {
             after: newMat.stock,
             note: "新店初始库存",
             createdAt: now,
-            branchId: newBranch.id
+            branchId: newBranch.id,
+            ...materialTransactionCostFields(newMat, newMat.stock, 1)
           });
         }
       }
@@ -6771,7 +6809,8 @@ const server = http.createServer(async (req, res) => {
                         orderId: order.id,
                         note: `订单 ${order.id} 完成，扣减实际用量`,
                         at: new Date().toISOString(),
-                        branchId: orderBranchId
+                        branchId: orderBranchId,
+                        ...materialTransactionCostFields(mat, qty, -1)
                       });
                     }
                   }
@@ -6799,7 +6838,8 @@ const server = http.createServer(async (req, res) => {
                         orderId: order.id,
                         note: `订单 ${order.id} 状态回退，恢复材料`,
                         at: new Date().toISOString(),
-                        branchId: orderBranchId
+                        branchId: orderBranchId,
+                        ...materialTransactionCostFields(mat, qty, 1)
                       });
                     }
                   }
