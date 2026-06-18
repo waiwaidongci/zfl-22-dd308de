@@ -375,12 +375,20 @@ function enrichCustomer(customer, orders, works) {
   }, 0);
   const paperCount = {};
   const mountingCount = {};
+  const sortedItems = allItems.slice().sort((a, b) => {
+    const aTime = new Date(a.dueDate || a.completedAt || a.createdAt || 0).getTime();
+    const bTime = new Date(b.dueDate || b.completedAt || b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
   allItems.forEach(item => {
     if (item.paper) paperCount[item.paper] = (paperCount[item.paper] || 0) + 1;
     if (item.mounting) mountingCount[item.mounting] = (mountingCount[item.mounting] || 0) + 1;
   });
-  const preferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  const preferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const autoPreferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const autoPreferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const lastInscription = sortedItems.find(item => item.inscription && item.inscription.trim())?.inscription || "";
+  const preferredPaper = customer.preferredPaper || autoPreferredPaper;
+  const preferredMounting = customer.preferredMounting || autoPreferredMounting;
   const pendingOrders = cOrders.filter(o => o.status !== "已完成").length;
   return {
     ...customer,
@@ -390,7 +398,10 @@ function enrichCustomer(customer, orders, works) {
     totalPaid,
     totalSpent,
     preferredPaper,
-    preferredMounting
+    preferredMounting,
+    lastInscription,
+    autoPreferredPaper,
+    autoPreferredMounting
   };
 }
 
@@ -785,6 +796,10 @@ function page() {
           </div>
           <label>鱼种</label><input name="fishSpecies" required>
           <label>拓印尺寸</label><input name="size" required>
+          <div id="customer-preferences-hint" style="display:none;margin:12px 0;padding:10px 12px;background:#e6f2f0;border:1px solid #bcd8d4;border-radius:6px;">
+            <div style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:6px;">💡 已自动填充客户偏好，提交前可手动修改</div>
+            <div id="pref-hint-details" style="font-size:12px;color:var(--muted);"></div>
+          </div>
           <label>纸张类型</label><input name="paper" required>
           <label>墨色方案</label><textarea name="inkPlan" required></textarea>
           <label>装裱方式</label><input name="mounting" required>
@@ -1036,6 +1051,10 @@ function page() {
         <label>联系电话</label><input id="cm-phone">
         <label>微信号</label><input id="cm-wechat">
         <label>地址</label><input id="cm-address">
+        <div class="divider" style="margin:14px 0;"></div>
+        <h4 style="margin:0 0 8px;font-size:14px;">客户偏好（选填，将作为新增委托的默认值）</h4>
+        <label>常用纸张 <span style="font-weight:400;color:var(--muted);">（留空则自动根据历史订单推断）</span></label><input id="cm-preferred-paper">
+        <label>常用装裱方式 <span style="font-weight:400;color:var(--muted);">（留空则自动根据历史订单推断）</span></label><input id="cm-preferred-mounting">
         <label>备注</label><textarea id="cm-note"></textarea>
       </div>
       <div id="cm-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
@@ -2111,6 +2130,7 @@ function page() {
           const prefs = [];
           if (c.preferredPaper) prefs.push('<span class="pill">📄 '+c.preferredPaper+'</span>');
           if (c.preferredMounting) prefs.push('<span class="pill">🖼️ '+c.preferredMounting+'</span>');
+          if (c.lastInscription) prefs.push('<span class="pill">✍️ '+c.lastInscription+'</span>');
           const actionsHtml = isAllView
             ? '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button></div>'
             : '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button><button class="secondary" data-edit-customer="'+c.id+'">编辑</button></div>';
@@ -2164,8 +2184,13 @@ function page() {
           + '<div class="info-row"><span class="info-label">完成作品</span><span class="info-value">'+(customer.workCount||0)+' 件</span></div>'
           + '<div class="info-row"><span class="info-label">未完成订单</span><span class="info-value" style="color:'+(customer.pendingOrders>0?'var(--warn)':'var(--ink)')+';">'+(customer.pendingOrders||0)+' 单</span></div>'
           + '<div class="info-row"><span class="info-label">累计消费</span><span class="info-value money">¥'+(customer.totalSpent||0)+'</span></div>'
-          + '<div class="info-row"><span class="info-label">常用纸张</span><span class="info-value">'+(customer.preferredPaper||"—")+'</span></div>'
-          + '<div class="info-row"><span class="info-label">常用装裱</span><span class="info-value">'+(customer.preferredMounting||"—")+'</span></div>'
+          + '<div class="divider" style="margin:10px 0;"></div>'
+          + '<div class="customer-preferences-block" style="padding:12px;background:var(--bg);border-radius:6px;margin-bottom:8px;">'
+          + '<div class="row" style="margin-bottom:8px;"><h4 style="margin:0;font-size:14px;">🎨 客户偏好</h4><button class="secondary" style="padding:4px 10px;font-size:12px;" id="cd-edit-prefs-btn">编辑偏好</button></div>'
+          + '<div class="info-row"><span class="info-label">📄 常用纸张</span><span class="info-value">'+(customer.preferredPaper||"—")+(customer.preferredPaper && customer.autoPreferredPaper && customer.preferredPaper !== customer.autoPreferredPaper ? ' <span style="font-size:11px;color:var(--accent);">(手动设置)</span>' : (customer.autoPreferredPaper ? ' <span style="font-size:11px;color:var(--muted);">(自动推断)</span>' : ''))+'</span></div>'
+          + '<div class="info-row"><span class="info-label">🖼️ 常用装裱</span><span class="info-value">'+(customer.preferredMounting||"—")+(customer.preferredMounting && customer.autoPreferredMounting && customer.preferredMounting !== customer.autoPreferredMounting ? ' <span style="font-size:11px;color:var(--accent);">(手动设置)</span>' : (customer.autoPreferredMounting ? ' <span style="font-size:11px;color:var(--muted);">(自动推断)</span>' : ''))+'</span></div>'
+          + '<div class="info-row"><span class="info-label">✍️ 最近题字</span><span class="info-value">'+(customer.lastInscription||"—")+'</span></div>'
+          + '</div>'
           + (customer.note ? '<div class="customer-note"><strong style="font-size:12px;color:var(--muted);">备注</strong><br>'+customer.note+'</div>' : '')
           + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">'
           + '<button data-edit-customer-btn="'+customer.id+'">编辑客户</button>'
@@ -2221,6 +2246,7 @@ function page() {
           renderCustomerDetail();
         });
         document.querySelector("[data-edit-customer-btn]")?.addEventListener("click", () => { if (!requireBranch()) return; openCustomerModal(customer.id); });
+        document.querySelector("#cd-edit-prefs-btn")?.addEventListener("click", () => { if (!requireBranch()) return; openCustomerModal(customer.id); });
         const delBtn = document.querySelector("[data-delete-customer-btn]");
         if (delBtn) delBtn.onclick = async () => {
           if (!requireBranch()) return;
@@ -2254,6 +2280,8 @@ function page() {
         document.querySelector("#cm-phone").value = c.phone || "";
         document.querySelector("#cm-wechat").value = c.wechat || "";
         document.querySelector("#cm-address").value = c.address || "";
+        document.querySelector("#cm-preferred-paper").value = c.preferredPaper || "";
+        document.querySelector("#cm-preferred-mounting").value = c.preferredMounting || "";
         document.querySelector("#cm-note").value = c.note || "";
       } else {
         title.textContent = "新增客户";
@@ -2262,6 +2290,8 @@ function page() {
         document.querySelector("#cm-phone").value = "";
         document.querySelector("#cm-wechat").value = "";
         document.querySelector("#cm-address").value = "";
+        document.querySelector("#cm-preferred-paper").value = "";
+        document.querySelector("#cm-preferred-mounting").value = "";
         document.querySelector("#cm-note").value = "";
       }
       overlay.classList.add("active");
@@ -4155,17 +4185,45 @@ function page() {
       sub.classList.toggle("active");
       if (sub.classList.contains("active")) {
         document.querySelector("#customer-select").value = "";
+        document.querySelector("#customer-preferences-hint").style.display = "none";
       }
     };
     document.querySelector("#customer-select").onchange = (e) => {
       if (e.target.value) {
         document.querySelector("#new-customer-subform").classList.remove("active");
+        const selectedId = e.target.value;
+        const cust = customers.find(c => c.id === selectedId);
+        if (cust) {
+          const form = document.querySelector("#form");
+          const prefHint = document.querySelector("#customer-preferences-hint");
+          const prefDetails = document.querySelector("#pref-hint-details");
+          const details = [];
+          if (cust.preferredPaper) {
+            if (!form.paper.value.trim()) { form.paper.value = cust.preferredPaper; details.push("📄 纸张："+cust.preferredPaper); }
+          }
+          if (cust.preferredMounting) {
+            if (!form.mounting.value.trim()) { form.mounting.value = cust.preferredMounting; details.push("🖼️ 装裱："+cust.preferredMounting); }
+          }
+          if (cust.lastInscription) {
+            if (!form.inscription.value.trim()) { form.inscription.value = cust.lastInscription; details.push("✍️ 题字："+cust.lastInscription); }
+          }
+          if (details.length > 0) {
+            prefDetails.innerHTML = details.join(" · ");
+            prefHint.style.display = "block";
+            form.paper.dispatchEvent(new Event("input"));
+          } else {
+            prefHint.style.display = "none";
+          }
+        }
+      } else {
+        document.querySelector("#customer-preferences-hint").style.display = "none";
       }
     };
     document.querySelector("#quick-new-customer").onclick = () => {
       afterCustomerCreated = (newCust) => {
         document.querySelector("#customer-select").value = newCust.id;
         document.querySelector("#new-customer-subform").classList.remove("active");
+        document.querySelector("#customer-select").dispatchEvent(new Event("change"));
       };
       openCustomerModal();
     };
@@ -4212,11 +4270,13 @@ function page() {
           await api("/api/orders", { method:"POST", body: JSON.stringify(payload) });
           form.reset();
           document.querySelector("#new-customer-subform").classList.remove("active");
+          document.querySelector("#customer-preferences-hint").style.display = "none";
           await load();
         } else {
           await queueCreateOrder(payload);
           form.reset();
           document.querySelector("#new-customer-subform").classList.remove("active");
+          document.querySelector("#customer-preferences-hint").style.display = "none";
           await applyAllOfflineOperationsToLocal();
           renderOrders();
         }
@@ -4225,6 +4285,7 @@ function page() {
           await queueCreateOrder(payload);
           form.reset();
           document.querySelector("#new-customer-subform").classList.remove("active");
+          document.querySelector("#customer-preferences-hint").style.display = "none";
           await applyAllOfflineOperationsToLocal();
           renderOrders();
         } else {
@@ -4265,6 +4326,8 @@ function page() {
       const phone = document.querySelector("#cm-phone").value.trim();
       const wechat = document.querySelector("#cm-wechat").value.trim();
       const address = document.querySelector("#cm-address").value.trim();
+      const preferredPaper = document.querySelector("#cm-preferred-paper").value.trim();
+      const preferredMounting = document.querySelector("#cm-preferred-mounting").value.trim();
       const note = document.querySelector("#cm-note").value.trim();
       const errorEl = document.querySelector("#cm-error");
       if (!name) {
@@ -4277,12 +4340,12 @@ function page() {
         if (editingCustomerId) {
           result = await api("/api/customers/"+editingCustomerId, {
             method: "PUT",
-            body: JSON.stringify({ name, phone, wechat, address, note })
+            body: JSON.stringify({ name, phone, wechat, address, note, preferredPaper, preferredMounting })
           });
         } else {
           result = await api("/api/customers", {
             method: "POST",
-            body: JSON.stringify({ name, phone, wechat, address, note })
+            body: JSON.stringify({ name, phone, wechat, address, note, preferredPaper, preferredMounting })
           });
         }
         document.querySelector("#customer-modal-overlay").classList.remove("active");
@@ -5151,6 +5214,8 @@ const server = http.createServer(async (req, res) => {
         wechat: input.wechat || "",
         address: input.address || "",
         note: input.note || "",
+        preferredPaper: input.preferredPaper || "",
+        preferredMounting: input.preferredMounting || "",
         createdAt: new Date().toISOString(),
         branchId
       };
@@ -5191,6 +5256,8 @@ const server = http.createServer(async (req, res) => {
         if (input.wechat !== undefined) customer.wechat = input.wechat;
         if (input.address !== undefined) customer.address = input.address;
         if (input.note !== undefined) customer.note = input.note;
+        if (input.preferredPaper !== undefined) customer.preferredPaper = input.preferredPaper || "";
+        if (input.preferredMounting !== undefined) customer.preferredMounting = input.preferredMounting || "";
         await saveDb(db);
         return sendJson(res, 200, enrichCustomer(customer, branchOrders, branchWorks));
       }
