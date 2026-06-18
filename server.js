@@ -2160,6 +2160,7 @@ function page() {
     }
 
     let currentViewingCustomerId = null;
+    let lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
 
     async function renderCustomerDetail() {
       if (!currentViewingCustomerId) return;
@@ -4186,6 +4187,7 @@ function page() {
       if (sub.classList.contains("active")) {
         document.querySelector("#customer-select").value = "";
         document.querySelector("#customer-preferences-hint").style.display = "none";
+        lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
       }
     };
     document.querySelector("#customer-select").onchange = (e) => {
@@ -4198,15 +4200,26 @@ function page() {
           const prefHint = document.querySelector("#customer-preferences-hint");
           const prefDetails = document.querySelector("#pref-hint-details");
           const details = [];
-          if (cust.preferredPaper) {
-            if (!form.paper.value.trim()) { form.paper.value = cust.preferredPaper; details.push("📄 纸张："+cust.preferredPaper); }
+          const shouldRefreshPaper = !form.paper.value.trim() || form.paper.value === lastCustomerPreferenceAutofill.paper;
+          const shouldRefreshMounting = !form.mounting.value.trim() || form.mounting.value === lastCustomerPreferenceAutofill.mounting;
+          const shouldRefreshInscription = !form.inscription.value.trim() || form.inscription.value === lastCustomerPreferenceAutofill.inscription;
+          if (cust.preferredPaper && shouldRefreshPaper) {
+            form.paper.value = cust.preferredPaper;
+            details.push("📄 纸张："+cust.preferredPaper);
           }
-          if (cust.preferredMounting) {
-            if (!form.mounting.value.trim()) { form.mounting.value = cust.preferredMounting; details.push("🖼️ 装裱："+cust.preferredMounting); }
+          if (cust.preferredMounting && shouldRefreshMounting) {
+            form.mounting.value = cust.preferredMounting;
+            details.push("🖼️ 装裱："+cust.preferredMounting);
           }
-          if (cust.lastInscription) {
-            if (!form.inscription.value.trim()) { form.inscription.value = cust.lastInscription; details.push("✍️ 题字："+cust.lastInscription); }
+          if (cust.lastInscription && shouldRefreshInscription) {
+            form.inscription.value = cust.lastInscription;
+            details.push("✍️ 题字："+cust.lastInscription);
           }
+          lastCustomerPreferenceAutofill = {
+            paper: cust.preferredPaper || "",
+            mounting: cust.preferredMounting || "",
+            inscription: cust.lastInscription || ""
+          };
           if (details.length > 0) {
             prefDetails.innerHTML = details.join(" · ");
             prefHint.style.display = "block";
@@ -4217,6 +4230,7 @@ function page() {
         }
       } else {
         document.querySelector("#customer-preferences-hint").style.display = "none";
+        lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
       }
     };
     document.querySelector("#quick-new-customer").onclick = () => {
@@ -4271,12 +4285,14 @@ function page() {
           form.reset();
           document.querySelector("#new-customer-subform").classList.remove("active");
           document.querySelector("#customer-preferences-hint").style.display = "none";
+          lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
           await load();
         } else {
           await queueCreateOrder(payload);
           form.reset();
           document.querySelector("#new-customer-subform").classList.remove("active");
           document.querySelector("#customer-preferences-hint").style.display = "none";
+          lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
           await applyAllOfflineOperationsToLocal();
           renderOrders();
         }
@@ -4286,6 +4302,7 @@ function page() {
           form.reset();
           document.querySelector("#new-customer-subform").classList.remove("active");
           document.querySelector("#customer-preferences-hint").style.display = "none";
+          lastCustomerPreferenceAutofill = { paper: "", mounting: "", inscription: "" };
           await applyAllOfflineOperationsToLocal();
           renderOrders();
         } else {
