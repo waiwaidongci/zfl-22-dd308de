@@ -132,6 +132,69 @@ function formatPaymentRecord(payment) {
   return `${payment.type || "收款"} ¥${Number(payment.amount || 0)} · ${payment.paidAt || "-"}${payment.note ? ` · ${payment.note}` : ""}`;
 }
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function clientNameFromOrderInput(input, customers = []) {
+  if (input.newCustomer?.name) return input.newCustomer.name;
+  if (input.customerId) {
+    const cust = customers.find(c => c.id === input.customerId);
+    if (cust) return cust.name;
+  }
+  return input.client || "";
+}
+
+function createOrderConflictSnapshot(order) {
+  if (!order) return null;
+  return {
+    id: order.id,
+    client: order.client || "",
+    fishSpecies: order.fishSpecies || "",
+    size: order.size || "",
+    paper: order.paper || "",
+    price: Number(order.price || 0),
+    owner: order.owner || "",
+    dueDate: order.dueDate || "",
+    note: order.note || "",
+    status: order.status || "",
+    updatedAt: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : "",
+    lastNote: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].note || "" : ""
+  };
+}
+
+function createOrderLocalSnapshot(input, customers = [], offlineAt = "") {
+  return {
+    client: clientNameFromOrderInput(input, customers),
+    fishSpecies: input.fishSpecies || "",
+    size: input.size || "",
+    paper: input.paper || "",
+    price: Number(input.price || 0),
+    owner: input.owner || "",
+    dueDate: input.dueDate || "",
+    note: input.note || "",
+    offlineAt
+  };
+}
+
+function findSimilarOrderConflict(input, orders = [], customers = [], branchId = DEFAULT_BRANCH_ID) {
+  const local = createOrderLocalSnapshot(input, customers);
+  const localClient = normalizeText(local.client);
+  const localSpecies = normalizeText(local.fishSpecies);
+  const localSize = normalizeText(local.size);
+  const localDueDate = normalizeText(local.dueDate);
+  if (!localClient || !localSpecies) return null;
+  return orders.find(order => {
+    if ((order.branchId || DEFAULT_BRANCH_ID) !== branchId) return false;
+    if (order.archived) return false;
+    const sameClient = normalizeText(order.client) === localClient;
+    const sameSpecies = normalizeText(order.fishSpecies) === localSpecies;
+    const sameSize = localSize && normalizeText(order.size) === localSize;
+    const sameDueDate = localDueDate && normalizeText(order.dueDate) === localDueDate;
+    return sameClient && sameSpecies && (sameSize || sameDueDate);
+  }) || null;
+}
+
 function toLocalDateString(value = new Date()) {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const date = value instanceof Date ? value : new Date(value);
@@ -5150,21 +5213,48 @@ function page() {
               + '</div></div></div>';
           } else if (item.type === "create_order") {
             const d = item.data || {};
+            const server = cd.serverSnapshot || {};
+            const local = cd.localChange || {
+              client: d.client || d.newCustomer?.name || "",
+              fishSpecies: d.fishSpecies || "",
+              size: d.size || "",
+              paper: d.paper || "",
+              price: Number(d.price || 0),
+              owner: d.owner || "",
+              dueDate: d.dueDate || "",
+              note: d.note || ""
+            };
+            const createField = (label, serverValue, localValue) => {
+              const diff = String(serverValue || "") !== String(localValue || "");
+              return '<div class="conflict-field-row">'
+                + '<span class="cf-server '+(diff ? 'cf-diff' : '')+'"><span class="cf-label">'+label+'</span><br>'+(serverValue || "-")+'</span>'
+                + '<span class="cf-arrow">→</span>'
+                + '<span class="cf-local '+(diff ? 'cf-diff' : '')+'"><span class="cf-label">'+label+'</span><br>'+(localValue || "-")+'</span>'
+                + '</div>';
+            };
             conflictHtml = '<div class="conflict-detail"><h5>⚠️ 新增委托冲突：创建订单时与服务端数据冲突</h5>'
-              + '<div style="font-size:12px;color:#8a5a1e;margin:0 0 10px;">本地待创建的委托信息如下，请选择解决方案</div>'
+              + '<div style="font-size:12px;color:#8a5a1e;margin:0 0 10px;">检测到服务端可能已有相同委托，以下字段存在差异，高亮标记为变更项，请选择解决方案</div>'
               + '<div class="conflict-side-by-side">'
-              + '<div class="conflict-box local"><div class="conflict-label">📱 本地待创建委托</div>'
-              + '<div class="conflict-field"><span class="field-name">鱼种</span><span>'+(d.fishSpecies||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">尺寸</span><span>'+(d.size||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">纸张</span><span>'+(d.paper||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">报价</span><span style="font-weight:700;">¥'+(d.price||0)+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">负责人</span><span>'+(d.owner||"-")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">交付日期</span><span>'+(d.dueDate||"-")+'</span></div>'
-              + (d.newCustomer?.name ? '<div class="conflict-field"><span class="field-name">新客户</span><span>'+d.newCustomer.name+(d.newCustomer.phone?' · '+d.newCustomer.phone:'')+'</span></div>' : '')
+              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务端已有委托</div>'
+              + '<div class="conflict-field"><span class="field-name">编号</span><span>'+(server.id||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">客户</span><span>'+(server.client||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">状态</span><span>'+(server.status||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">最近更新</span><span>'+(server.updatedAt ? fmtDate(server.updatedAt) : "-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">近期备注</span><span style="font-size:11px;">'+(server.lastNote||server.note||"-")+'</span></div>'
               + '</div>'
-              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器</div>'
-              + '<div style="font-size:12px;color:var(--muted);padding:8px 0;">服务端可能已存在相同委托，或网络中断导致创建失败。选择「强制重新提交」将再次尝试创建。</div>'
+              + '<div class="conflict-box local"><div class="conflict-label">📱 本地待创建委托</div>'
+              + '<div class="conflict-field"><span class="field-name">客户</span><span>'+(local.client||d.client||d.newCustomer?.name||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">鱼种</span><span>'+(local.fishSpecies||d.fishSpecies||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">离线备注</span><span>'+(local.note||d.note||"-")+'</span></div>'
               + '</div></div>'
+              + '<div class="conflict-box" style="margin-top:10px;"><div class="conflict-label">关键字段差异</div>'
+              + createField("鱼种", server.fishSpecies, local.fishSpecies || d.fishSpecies)
+              + createField("尺寸", server.size, local.size || d.size)
+              + createField("纸张", server.paper, local.paper || d.paper)
+              + createField("报价", server.price ? "¥"+server.price : "", (local.price || d.price) ? "¥"+(local.price || d.price) : "")
+              + createField("负责人", server.owner, local.owner || d.owner)
+              + createField("交付日期", server.dueDate, local.dueDate || d.dueDate)
+              + '</div>'
               + '<div class="conflict-resolve-bar">'
               + '<button class="resolve-btn resolve-local" data-resolve="local" data-opid="'+item.opId+'">📱 强制重新提交</button>'
               + '<button class="resolve-btn resolve-server" data-resolve="server" data-opid="'+item.opId+'">🖥️ 放弃创建</button>'
@@ -5172,7 +5262,7 @@ function page() {
               + '</div>'
               + '<div class="merge-panel" id="merge-'+item.opId+'">'
               + '<h6>手动合并：修改委托信息后重新提交</h6>'
-              + '<textarea id="merge-note-'+item.opId+'" placeholder="输入合并备注，说明调整原因…">合并处理：重新提交委托，鱼种'+(d.fishSpecies||"-")+'，报价¥'+(d.price||0)+'。</textarea>'
+              + '<textarea id="merge-note-'+item.opId+'" placeholder="输入合并备注，说明调整原因…">合并处理：服务端已有委托'+(server.id||"-")+'，本地重新提交鱼种'+(local.fishSpecies||d.fishSpecies||"-")+'，报价¥'+(local.price||d.price||0)+'。</textarea>'
               + '<div class="merge-submit-row">'
               + '<button class="merge-submit-btn" data-merge-submit="'+item.opId+'">✅ 确认合并并重新同步</button>'
               + '<button class="merge-cancel-btn" data-merge-cancel="'+item.opId+'">取消</button>'
@@ -5229,7 +5319,7 @@ function page() {
             const queue = await getOfflineQueue();
             const item = queue.find(q => q.opId === opId);
             if (!item) return;
-            if (item.type === "add_payment" || item.type === "update_stage") {
+            if (item.type === "add_payment" || item.type === "update_stage" || item.type === "create_order") {
               item.data.forceOverride = true;
             }
             await saveOfflineQueue(queue);
@@ -5261,6 +5351,7 @@ function page() {
               item.data.payment.note = (item.data.payment.note || "") + "【合并备注：" + mergeNote + "】";
             }
           } else if (item.type === "create_order") {
+            item.data.forceOverride = true;
             if (mergeNote) {
               item.data.note = (item.data.note || "") + "【合并备注：" + mergeNote + "】";
             }
@@ -6968,6 +7059,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/orders") {
       const input = await body(req);
+      const similarOrder = findSimilarOrderConflict(input, db.orders || [], db.customers || [], branchId);
+      if (similarOrder && !input.forceOverride) {
+        return sendJson(res, 409, {
+          error: "similar_order_exists",
+          conflict: {
+            serverSnapshot: createOrderConflictSnapshot(similarOrder),
+            localChange: createOrderLocalSnapshot(input, db.customers || [], new Date().toISOString()),
+            reason: "similar_order_exists"
+          }
+        });
+      }
       let customerId = input.customerId;
       let clientName = input.client;
       if (input.newCustomer && input.newCustomer.name) {
@@ -6995,7 +7097,7 @@ const server = http.createServer(async (req, res) => {
           stage: "待拓印",
           assignee: input.owner || "未分配",
           date: new Date().toISOString().slice(0, 10),
-          note: "新委托接单",
+          note: input.note || "新委托接单",
           completed: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -7013,10 +7115,11 @@ const server = http.createServer(async (req, res) => {
         status: "待拓印",
         tasks: initialTasks,
         materialUsage,
-        history: [{ at: new Date().toISOString(), stage: "待拓印", note: "新委托接单" }],
+        history: [{ at: new Date().toISOString(), stage: "待拓印", note: input.note || "新委托接单" }],
         branchId
       };
       delete order.newCustomer;
+      delete order.forceOverride;
       const branchMaterials = byBranch(db.materials || []);
       for (const [matId, qty] of Object.entries(materialUsage)) {
         const mat = branchMaterials.find(m => m.id === matId);
@@ -7969,6 +8072,17 @@ const server = http.createServer(async (req, res) => {
         try {
           if (op.type === "create_order") {
             const createInput = op.data;
+            const similarOrder = findSimilarOrderConflict(createInput, db.orders || [], db.customers || [], branchId);
+            if (similarOrder && !createInput.forceOverride) {
+              result.status = "conflict";
+              result.conflict = {
+                serverSnapshot: createOrderConflictSnapshot(similarOrder),
+                localChange: createOrderLocalSnapshot(createInput, db.customers || [], op.timestamp),
+                reason: "similar_order_exists"
+              };
+              results.push(result);
+              continue;
+            }
             let customerId = createInput.customerId;
             let clientName = createInput.client;
             if (createInput.newCustomer && createInput.newCustomer.name) {
@@ -7996,7 +8110,7 @@ const server = http.createServer(async (req, res) => {
                 stage: "待拓印",
                 assignee: createInput.owner || "未分配",
                 date: new Date().toISOString().slice(0, 10),
-                note: "新委托接单",
+                note: createInput.note || "新委托接单",
                 completed: false,
                 createdAt: op.timestamp || new Date().toISOString(),
                 updatedAt: op.timestamp || new Date().toISOString()
@@ -8014,11 +8128,12 @@ const server = http.createServer(async (req, res) => {
               status: "待拓印",
               tasks: initialTasks,
               materialUsage,
-              history: [{ at: op.timestamp || new Date().toISOString(), stage: "待拓印", note: "新委托接单" }],
+              history: [{ at: op.timestamp || new Date().toISOString(), stage: "待拓印", note: createInput.note || "新委托接单" }],
               branchId,
               offlineCreatedAt: op.timestamp
             };
             delete order.newCustomer;
+            delete order.forceOverride;
             const branchMaterials = byBranch(db.materials || []);
             for (const [matId, qty] of Object.entries(materialUsage)) {
               const mat = branchMaterials.find(m => m.id === matId);
