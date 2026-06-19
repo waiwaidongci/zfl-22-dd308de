@@ -149,6 +149,23 @@ const STAGE_DURATION_DAYS = {
   "待取件": 1
 };
 
+const DISPLAY_LEVELS = [
+  { value: "standard", label: "普通作品" },
+  { value: "featured", label: "精选作品" },
+  { value: "flagship", label: "镇店之宝" }
+];
+
+const AUTHORIZATION_STATUS = [
+  { value: "unauthorized", label: "未授权" },
+  { value: "authorized", label: "已授权展示" }
+];
+
+const DEFAULT_THEME_TAGS = [
+  "吉祥寓意", "节日主题", "山水意境", "文人雅趣",
+  "传统吉祥", "现代简约", "送礼佳品", "收藏级",
+  "家庭装饰", "办公陈设"
+];
+
 function daysBetween(dateStr1, dateStr2) {
   if (!dateStr1 || !dateStr2) return 0;
   const d1 = new Date(dateStr1);
@@ -437,7 +454,10 @@ const seed = {
       mounting: "立轴",
       inscription: "烟波钓徒",
       owner: "阿青",
-      completedAt: "2026-05-20T10:00:00.000Z"
+      completedAt: "2026-05-20T10:00:00.000Z",
+      themeTags: ["文人雅趣", "山水意境"],
+      displayLevel: "featured",
+      clientAuthorization: "authorized"
     },
     {
       id: "W-002",
@@ -450,7 +470,10 @@ const seed = {
       mounting: "册页",
       inscription: "海阔凭鱼跃",
       owner: "阿青",
-      completedAt: "2026-05-15T15:30:00.000Z"
+      completedAt: "2026-05-15T15:30:00.000Z",
+      themeTags: ["吉祥寓意", "送礼佳品"],
+      displayLevel: "standard",
+      clientAuthorization: "unauthorized"
     }
   ]
 };
@@ -603,6 +626,17 @@ async function migrateLegacyData(db) {
       if (!change.branchId) { change.branchId = DEFAULT_BRANCH_ID; changed = true; }
     }
     db._branchMigrated = true;
+    changed = true;
+  }
+  if (!db._worksEnhancedMigrated) {
+    if (Array.isArray(db.works)) {
+      for (const work of db.works) {
+        if (!work.themeTags) { work.themeTags = []; changed = true; }
+        if (!work.displayLevel) { work.displayLevel = "standard"; changed = true; }
+        if (!work.clientAuthorization) { work.clientAuthorization = "unauthorized"; changed = true; }
+      }
+    }
+    db._worksEnhancedMigrated = true;
     changed = true;
   }
   if (changed) {
@@ -1023,6 +1057,35 @@ function page() {
     .branch-card .branch-name { font-size:18px;font-weight:700;margin:0; }
     .branch-card .branch-default { display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#dff0ed;color:#1e5854; }
     .branch-card .branch-info { font-size:13px;color:var(--muted);display:grid;gap:4px; }
+    .display-badge { display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700; }
+    .display-badge.standard { background:#eef4f1;color:#667777;border:1px solid var(--line); }
+    .display-badge.featured { background:#fff7e6;color:#d48806;border:1px solid #ffe58f; }
+    .display-badge.flagship { background:#fce4e4;color:#9b2c2c;border:1px solid #f8b4b4; }
+    .auth-badge { display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700; }
+    .auth-badge.authorized { background:#dff0ed;color:#1e5854;border:1px solid #bcd8d4; }
+    .auth-badge.unauthorized { background:#f3f0f0;color:#888;border:1px solid var(--line); }
+    .theme-tag { display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#eef4f1;color:#246b68;border:1px solid #cddbd6;margin:2px; }
+    .theme-tag-list { display:flex;flex-wrap:wrap;gap:3px;margin-top:4px; }
+    .works-filter-bar { display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;align-items:center; }
+    .works-filter-bar select { width:auto;min-width:140px;padding:7px 10px; }
+    .works-filter-bar .search-box { flex-shrink:0;width:200px; }
+    .works-filter-bar button.reset-btn { padding:8px 14px;font-size:13px; }
+    .work-card-actions { display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line); }
+    .work-card-actions button { flex:1;padding:6px 10px;font-size:12px; }
+    .work-card-badges { display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px; }
+    .work-stats-enhanced { grid-template-columns:repeat(6,minmax(100px,1fr)) !important; }
+    .work-stats-enhanced .stat-total { grid-column:span 6 !important; }
+    @media (max-width:900px) { .work-stats-enhanced { grid-template-columns:1fr 1fr !important; } .work-stats-enhanced .stat-total { grid-column:span 2 !important; } }
+    .tag-selector { display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg);border-radius:6px;max-height:150px;overflow-y:auto; }
+    .tag-selector label { display:inline-flex;align-items:center;gap:4px;margin:0;padding:4px 10px;background:#fff;border:1px solid var(--line);border-radius:999px;font-size:12px;cursor:pointer;user-select:none; }
+    .tag-selector label.selected { background:#246b68;color:#fff;border-color:#246b68; }
+    .tag-selector input { margin:0; }
+    .tag-manual-row { display:flex;gap:6px;margin-top:8px; }
+    .tag-manual-row input { flex:1; }
+    .tag-manual-row button { white-space:nowrap; }
+    .customer-works-tabs { display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--line); }
+    .customer-works-tab { padding:6px 14px;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;margin-bottom:-2px;font-size:13px; }
+    .customer-works-tab.active { color:var(--accent);border-bottom-color:var(--accent); }
     .cross-branch-table { width:100%;border-collapse:collapse;background:var(--panel);border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:12px; }
     .cross-branch-table th { background:var(--bg);padding:10px 12px;text-align:left;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line);font-weight:600; }
     .cross-branch-table td { padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line); }
@@ -1286,11 +1349,19 @@ function page() {
     </div>
 
     <div class="tab-content" id="tab-works">
-      <div class="stats" id="works-stats"></div>
-      <div class="toolbar">
+      <div class="stats work-stats-enhanced" id="works-stats"></div>
+      <div class="works-filter-bar">
+        <div class="search-box" style="width:220px;">
+          <input id="works-search" placeholder="搜索鱼种/题字/编号">
+        </div>
         <select id="filter-species"><option value="">全部鱼种</option></select>
         <select id="filter-mounting"><option value="">全部装裱方式</option></select>
-        <div class="spacer"></div>
+        <select id="filter-tag"><option value="">全部题材标签</option></select>
+        <select id="filter-display"><option value="">全部展示等级</option></select>
+        <select id="filter-auth"><option value="">全部授权状态</option></select>
+        <select id="filter-month"><option value="">全部完成月份</option></select>
+        <button class="secondary reset-btn" id="works-filter-reset" style="padding:8px 14px;font-size:13px;">重置筛选</button>
+        <div class="spacer" style="flex:1;"></div>
         <span class="meta" id="works-count"></span>
       </div>
       <div class="grid" id="works"></div>
@@ -1693,12 +1764,47 @@ function page() {
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="work-edit-modal">
+    <div class="modal" style="max-width:600px;">
+      <h3 id="wem-title">编辑作品信息</h3>
+      <div class="modal-sub" id="wem-sub"></div>
+      <div class="modal-detail" style="margin-bottom:14px;">
+        <div class="row"><span class="label">作品编号</span><span class="value" id="wem-work-id"></span></div>
+        <div class="row"><span class="label">鱼种 / 尺寸</span><span class="value" id="wem-work-fish"></span></div>
+        <div class="row"><span class="label">委托人</span><span class="value" id="wem-work-client"></span></div>
+      </div>
+      <h4 style="margin:0 0 8px;font-size:14px;">题材标签</h4>
+      <div class="tag-selector" id="wem-tag-selector"></div>
+      <div class="tag-manual-row">
+        <input id="wem-manual-tag" placeholder="输入自定义标签，按回车或点击添加">
+        <button class="secondary" id="wem-add-tag" type="button">添加标签</button>
+      </div>
+      <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label>展示等级</label>
+          <select id="wem-display-level"></select>
+        </div>
+        <div>
+          <label>客户授权状态</label>
+          <select id="wem-auth-status"></select>
+        </div>
+      </div>
+      <div id="wem-error" style="color:#9b2c2c;font-size:13px;margin-top:10px;display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:18px;">
+        <button class="secondary modal-close" id="wem-close">取消</button>
+        <button id="wem-save">保存修改</button>
+      </div>
+    </div>
+  </div>
   <script>
     const stages = ${JSON.stringify(stages)};
     const MATERIAL_CATEGORIES = ${JSON.stringify(MATERIAL_CATEGORIES)};
     const scheduleStages = ${JSON.stringify(scheduleStages)};
     const MAX_TASKS_PER_DAY = ${MAX_TASKS_PER_DAY};
     const DEFAULT_BRANCH_ID = "${DEFAULT_BRANCH_ID}";
+    const DISPLAY_LEVELS = ${JSON.stringify(DISPLAY_LEVELS)};
+    const AUTHORIZATION_STATUS = ${JSON.stringify(AUTHORIZATION_STATUS)};
+    const DEFAULT_THEME_TAGS = ${JSON.stringify(DEFAULT_THEME_TAGS)};
     let orders = [];
     let works = [];
     let customers = [];
@@ -1741,6 +1847,58 @@ function page() {
     let isOnline = true;
     let isSyncing = false;
     let syncAutoTimer = null;
+
+    const WORKS_FILTERS_KEY = "zfl_works_filters";
+    let worksFilters = {
+      search: "",
+      species: "",
+      mounting: "",
+      tag: "",
+      display: "",
+      auth: "",
+      month: ""
+    };
+    let editingWorkId = null;
+    let workEditTempTags = [];
+    let customerWorksView = "all";
+
+    function getDisplayLevelInfo(value) {
+      return DISPLAY_LEVELS.find(d => d.value === value) || DISPLAY_LEVELS[0];
+    }
+    function getAuthInfo(value) {
+      return AUTHORIZATION_STATUS.find(a => a.value === value) || AUTHORIZATION_STATUS[0];
+    }
+    function getCompletedMonth(isoStr) {
+      if (!isoStr) return "";
+      const d = new Date(isoStr);
+      if (Number.isNaN(d.getTime())) return "";
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    }
+    function saveWorksFilters() {
+      try { localStorage.setItem(WORKS_FILTERS_KEY, JSON.stringify(worksFilters)); } catch (e) {}
+    }
+    function loadWorksFilters() {
+      try {
+        const saved = localStorage.getItem(WORKS_FILTERS_KEY);
+        if (saved) worksFilters = { ...worksFilters, ...JSON.parse(saved) };
+      } catch (e) {}
+    }
+    function applyWorksFiltersToUI() {
+      const el = (id) => document.querySelector(id);
+      if (el("#works-search")) el("#works-search").value = worksFilters.search;
+      if (el("#filter-species")) el("#filter-species").value = worksFilters.species;
+      if (el("#filter-mounting")) el("#filter-mounting").value = worksFilters.mounting;
+      if (el("#filter-tag")) el("#filter-tag").value = worksFilters.tag;
+      if (el("#filter-display")) el("#filter-display").value = worksFilters.display;
+      if (el("#filter-auth")) el("#filter-auth").value = worksFilters.auth;
+      if (el("#filter-month")) el("#filter-month").value = worksFilters.month;
+    }
+    function resetWorksFilters() {
+      worksFilters = { search: "", species: "", mounting: "", tag: "", display: "", auth: "", month: "" };
+      saveWorksFilters();
+      applyWorksFiltersToUI();
+      renderWorks();
+    }
 
     const ORDER_FILTERS_KEY = "zfl_order_filters";
     let orderFilters = {
@@ -2538,30 +2696,193 @@ function page() {
       const worksEl = document.querySelector("#works");
       const speciesFilter = document.querySelector("#filter-species");
       const mountingFilter = document.querySelector("#filter-mounting");
+      const tagFilter = document.querySelector("#filter-tag");
+      const displayFilter = document.querySelector("#filter-display");
+      const authFilter = document.querySelector("#filter-auth");
+      const monthFilter = document.querySelector("#filter-month");
       const countEl = document.querySelector("#works-count");
 
-      const speciesSet = [...new Set(works.map(w => w.fishSpecies))];
-      const mountingSet = [...new Set(works.map(w => w.mounting))];
-      const prevSpecies = speciesFilter.value;
-      const prevMounting = mountingFilter.value;
-      speciesFilter.innerHTML = '<option value="">全部鱼种</option>' + speciesSet.map(s => '<option>'+s+'</option>').join("");
-      mountingFilter.innerHTML = '<option value="">全部装裱方式</option>' + mountingSet.map(m => '<option>'+m+'</option>').join("");
-      speciesFilter.value = prevSpecies;
-      mountingFilter.value = prevMounting;
+      const speciesSet = [...new Set(works.map(w => w.fishSpecies).filter(Boolean))].sort();
+      const mountingSet = [...new Set(works.map(w => w.mounting).filter(Boolean))].sort();
+      const allTags = [...new Set(works.flatMap(w => w.themeTags || []).filter(Boolean))].sort();
+      const monthSet = [...new Set(works.map(w => getCompletedMonth(w.completedAt)).filter(Boolean))].sort().reverse();
 
+      const setOrPersist = (el, key) => {
+        if (!el) return;
+        const prev = el.value || worksFilters[key];
+        worksFilters[key] = prev;
+        return prev;
+      };
+
+      if (speciesFilter) {
+        const prev = speciesFilter.value || worksFilters.species;
+        speciesFilter.innerHTML = '<option value="">全部鱼种</option>' + speciesSet.map(s => '<option>'+s+'</option>').join("");
+        speciesFilter.value = prev;
+        worksFilters.species = prev;
+      }
+      if (mountingFilter) {
+        const prev = mountingFilter.value || worksFilters.mounting;
+        mountingFilter.innerHTML = '<option value="">全部装裱方式</option>' + mountingSet.map(m => '<option>'+m+'</option>').join("");
+        mountingFilter.value = prev;
+        worksFilters.mounting = prev;
+      }
+      if (tagFilter) {
+        const prev = tagFilter.value || worksFilters.tag;
+        tagFilter.innerHTML = '<option value="">全部题材标签</option>' + allTags.map(t => '<option>'+t+'</option>').join("");
+        tagFilter.value = prev;
+        worksFilters.tag = prev;
+      }
+      if (displayFilter) {
+        const prev = displayFilter.value || worksFilters.display;
+        displayFilter.innerHTML = '<option value="">全部展示等级</option>' + DISPLAY_LEVELS.map(d => '<option value="'+d.value+'">'+d.label+'</option>').join("");
+        displayFilter.value = prev;
+        worksFilters.display = prev;
+      }
+      if (authFilter) {
+        const prev = authFilter.value || worksFilters.auth;
+        authFilter.innerHTML = '<option value="">全部授权状态</option>' + AUTHORIZATION_STATUS.map(a => '<option value="'+a.value+'">'+a.label+'</option>').join("");
+        authFilter.value = prev;
+        worksFilters.auth = prev;
+      }
+      if (monthFilter) {
+        const prev = monthFilter.value || worksFilters.month;
+        monthFilter.innerHTML = '<option value="">全部完成月份</option>' + monthSet.map(m => '<option value="'+m+'">'+m+'</option>').join("");
+        monthFilter.value = prev;
+        worksFilters.month = prev;
+      }
+
+      const searchEl = document.querySelector("#works-search");
+      if (searchEl && searchEl !== document.activeElement) {
+        searchEl.value = worksFilters.search;
+      }
+
+      const featuredCount = works.filter(w => w.displayLevel === "featured").length;
+      const flagshipCount = works.filter(w => w.displayLevel === "flagship").length;
+      const authorizedCount = works.filter(w => w.clientAuthorization === "authorized").length;
       statsEl.innerHTML = '<div class="stat"><span>作品总数</span><strong>'+works.length+'</strong></div>'
         + '<div class="stat"><span>鱼种数</span><strong>'+speciesSet.length+'</strong></div>'
-        + '<div class="stat"><span>装裱类型</span><strong>'+mountingSet.length+'</strong></div>'
-        + '<div class="stat"><span>参与负责人</span><strong>'+[...new Set(works.map(w => w.owner))].length+'</strong></div>'
+        + '<div class="stat"><span>精选作品</span><strong style="color:#d48806;">'+featuredCount+'</strong></div>'
+        + '<div class="stat"><span>镇店之宝</span><strong style="color:#9b2c2c;">'+flagshipCount+'</strong></div>'
+        + '<div class="stat"><span>已授权展示</span><strong style="color:#246b68;">'+authorizedCount+'</strong></div>'
         + '<div class="stat"><span>最新完成</span><strong>'+(works.length?fmtDate(works[0].completedAt):"-")+'</strong></div>';
 
-      const filtered = works.filter(w =>
-        (!speciesFilter.value || w.fishSpecies === speciesFilter.value) &&
-        (!mountingFilter.value || w.mounting === mountingFilter.value)
-      );
+      const f = worksFilters;
+      const filtered = works.filter(w => {
+        if (f.species && w.fishSpecies !== f.species) return false;
+        if (f.mounting && w.mounting !== f.mounting) return false;
+        if (f.tag && !(w.themeTags || []).includes(f.tag)) return false;
+        if (f.display && w.displayLevel !== f.display) return false;
+        if (f.auth && w.clientAuthorization !== f.auth) return false;
+        if (f.month && getCompletedMonth(w.completedAt) !== f.month) return false;
+        if (f.search) {
+          const kw = f.search.trim().toLowerCase();
+          if (kw) {
+            const matchSpecies = (w.fishSpecies || "").toLowerCase().includes(kw);
+            const matchInscription = (w.inscription || "").toLowerCase().includes(kw);
+            const matchId = (w.id || "").toLowerCase().includes(kw);
+            const matchClient = (w.client || "").toLowerCase().includes(kw);
+            const matchTags = (w.themeTags || []).some(t => t.toLowerCase().includes(kw));
+            if (!matchSpecies && !matchInscription && !matchId && !matchClient && !matchTags) return false;
+          }
+        }
+        return true;
+      });
       countEl.textContent = "共 " + filtered.length + " 件作品";
 
-      worksEl.innerHTML = filtered.map(w => '<article class="card"><div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div><div class="meta">编号 '+w.id+' · 委托人 '+w.client+'</div><div class="divider"></div><div class="detail"><div><span class="label">尺寸</span>'+w.size+'</div><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色方案</span>'+w.inkPlan+'</div><div><span class="label">题字</span>'+(w.inscription || "无")+'</div><div><span class="label">负责人</span>'+w.owner+'</div><div><span class="label">完成时间</span>'+fmtDate(w.completedAt)+'</div></div></article>').join("");
+      const isAllView = currentBranchId === "__all__";
+      worksEl.innerHTML = filtered.length === 0
+        ? '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无符合条件的作品</div>'
+        : filtered.map(w => {
+            const dl = getDisplayLevelInfo(w.displayLevel);
+            const ai = getAuthInfo(w.clientAuthorization);
+            const tagsHtml = (w.themeTags && w.themeTags.length > 0)
+              ? '<div class="theme-tag-list">' + w.themeTags.map(t => '<span class="theme-tag">'+t+'</span>').join("") + '</div>'
+              : '<div class="meta" style="font-size:12px;color:var(--muted);margin-top:4px;">暂无题材标签</div>';
+            const editBtn = isAllView ? '' : '<button data-edit-work="'+w.id+'">编辑信息</button>';
+            return '<article class="card">'
+              + '<div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div>'
+              + '<div class="work-card-badges">'
+              + '<span class="display-badge '+w.displayLevel+'">⭐ '+dl.label+'</span>'
+              + '<span class="auth-badge '+w.clientAuthorization+'">'+(w.clientAuthorization==='authorized'?'✓ ':'🔒 ')+ai.label+'</span>'
+              + '</div>'
+              + '<div class="meta">编号 '+w.id+' · 委托人 '+w.client+'</div>'
+              + tagsHtml
+              + '<div class="divider"></div>'
+              + '<div class="detail"><div><span class="label">尺寸</span>'+w.size+'</div><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色方案</span>'+w.inkPlan+'</div><div><span class="label">题字</span>'+(w.inscription || "无")+'</div><div><span class="label">负责人</span>'+w.owner+'</div><div><span class="label">完成时间</span>'+fmtDate(w.completedAt)+'</div></div>'
+              + (isAllView ? '' : '<div class="work-card-actions">'+editBtn+'</div>')
+              + '</article>';
+          }).join("");
+
+      document.querySelectorAll("[data-edit-work]").forEach(btn => btn.onclick = () => openWorkEditModal(btn.dataset.editWork));
+    }
+
+    function openWorkEditModal(workId) {
+      if (!requireBranch()) return;
+      const work = works.find(w => w.id === workId);
+      if (!work) return;
+      editingWorkId = workId;
+      workEditTempTags = [...(work.themeTags || [])];
+
+      document.querySelector("#wem-work-id").textContent = work.id;
+      document.querySelector("#wem-work-fish").textContent = work.fishSpecies + " / " + work.size;
+      document.querySelector("#wem-work-client").textContent = work.client;
+
+      const dl = document.querySelector("#wem-display-level");
+      dl.innerHTML = DISPLAY_LEVELS.map(d => '<option value="'+d.value+'">'+d.label+'</option>').join("");
+      dl.value = work.displayLevel || "standard";
+
+      const as = document.querySelector("#wem-auth-status");
+      as.innerHTML = AUTHORIZATION_STATUS.map(a => '<option value="'+a.value+'">'+a.label+'</option>').join("");
+      as.value = work.clientAuthorization || "unauthorized";
+
+      document.querySelector("#wem-error").style.display = "none";
+      renderTagSelector();
+      document.querySelector("#work-edit-modal").classList.add("active");
+    }
+
+    function renderTagSelector() {
+      const sel = document.querySelector("#wem-tag-selector");
+      if (!sel) return;
+      const allTags = [...new Set([...DEFAULT_THEME_TAGS, ...workEditTempTags])];
+      sel.innerHTML = allTags.map(t => {
+        const selected = workEditTempTags.includes(t);
+        return '<label class="'+(selected?'selected':'')+'"><input type="checkbox" data-tag="'+t+'" '+(selected?'checked':'')+' style="display:none;"><span>'+(selected?'✓ ':'')+t+'</span></label>';
+      }).join("");
+      sel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.onchange = () => {
+          const tag = cb.dataset.tag;
+          if (cb.checked) {
+            if (!workEditTempTags.includes(tag)) workEditTempTags.push(tag);
+          } else {
+            workEditTempTags = workEditTempTags.filter(t => t !== tag);
+          }
+          renderTagSelector();
+        };
+      });
+    }
+
+    async function saveWorkEdit() {
+      if (!editingWorkId) return;
+      const displayLevel = document.querySelector("#wem-display-level").value;
+      const clientAuthorization = document.querySelector("#wem-auth-status").value;
+      const errorEl = document.querySelector("#wem-error");
+      errorEl.style.display = "none";
+      try {
+        await api("/api/works/"+editingWorkId, {
+          method: "PUT",
+          body: JSON.stringify({
+            themeTags: workEditTempTags,
+            displayLevel,
+            clientAuthorization
+          })
+        });
+        document.querySelector("#work-edit-modal").classList.remove("active");
+        editingWorkId = null;
+        await load();
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
     }
 
     function renderCustomers() {
@@ -2706,15 +3027,45 @@ function page() {
           + '<div class="customer-detail-content '+(customerDetailTab==='works'?'active':'')+'" id="cd-tab-works">'
           + (cWorks.length === 0
               ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无作品档案</div>'
-              : '<div class="grid">' + cWorks.map(w => '<article class="card"><div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div>'
-                + '<div class="meta">'+w.id+' · '+w.size+'</div><div class="divider"></div>'
-                + '<div class="detail"><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色</span>'+w.inkPlan+'</div>'
-                + '<div><span class="label">题字</span>'+(w.inscription||"无")+'</div><div><span class="label">完成</span>'+fmtDate(w.completedAt)+'</div></div></article>').join("") + '</div>')
+              : (() => {
+                  const authorizedWorks = cWorks.filter(w => w.clientAuthorization === "authorized");
+                  const viewAll = customerWorksView === "all";
+                  const displayWorks = viewAll ? cWorks : authorizedWorks;
+                  const worksHtml = displayWorks.length === 0
+                    ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">该客户暂' + (viewAll ? '无作品档案' : '未授权展示的作品') + '</div>'
+                    : '<div class="grid">' + displayWorks.map(w => {
+                        const dl = getDisplayLevelInfo(w.displayLevel);
+                        const ai = getAuthInfo(w.clientAuthorization);
+                        const tagsHtml = (w.themeTags && w.themeTags.length > 0)
+                          ? '<div class="theme-tag-list">' + w.themeTags.map(t => '<span class="theme-tag">'+t+'</span>').join("") + '</div>'
+                          : '';
+                        return '<article class="card">'
+                          + '<div class="row"><h3>'+w.fishSpecies+'</h3><span class="pill">'+w.mounting+'</span></div>'
+                          + '<div class="work-card-badges">'
+                          + '<span class="display-badge '+w.displayLevel+'">⭐ '+dl.label+'</span>'
+                          + '<span class="auth-badge '+w.clientAuthorization+'">'+(w.clientAuthorization==='authorized'?'✓ ':'🔒 ')+ai.label+'</span>'
+                          + '</div>'
+                          + '<div class="meta">'+w.id+' · '+w.size+'</div>'
+                          + tagsHtml
+                          + '<div class="divider"></div>'
+                          + '<div class="detail"><div><span class="label">纸张</span>'+w.paper+'</div><div><span class="label">墨色</span>'+w.inkPlan+'</div>'
+                          + '<div><span class="label">题字</span>'+(w.inscription||"无")+'</div><div><span class="label">完成</span>'+fmtDate(w.completedAt)+'</div></div></article>';
+                      }).join("") + '</div>';
+                  return '<div class="customer-works-tabs">'
+                    + '<div class="customer-works-tab '+(customerWorksView==='all'?'active':'')+'" data-cw-view="all">全部作品 ('+cWorks.length+')</div>'
+                    + '<div class="customer-works-tab '+(customerWorksView==='authorized'?'active':'')+'" data-cw-view="authorized">授权展示 ('+authorizedWorks.length+')</div>'
+                    + '</div>'
+                    + worksHtml;
+                })())
           + '</div>'
           + '</div>'
           + '</div>';
         document.querySelectorAll("[data-cd-tab]").forEach(t => t.onclick = () => {
           customerDetailTab = t.dataset.cdTab;
+          renderCustomerDetail();
+        });
+        document.querySelectorAll("[data-cw-view]").forEach(t => t.onclick = () => {
+          customerWorksView = t.dataset.cwView;
           renderCustomerDetail();
         });
         document.querySelector("[data-edit-customer-btn]")?.addEventListener("click", () => { if (!requireBranch()) return; openCustomerModal(customer.id); });
@@ -3594,13 +3945,13 @@ function page() {
           const alertsText = result.taskAlerts.map(function(a) {
             var sevLabel = a.severity === "high" ? "高风险" : "中风险";
             return "· [" + sevLabel + " - " + a.stage + "] " + a.message;
-          }).join("\n");
-          msg += "\n\n⚠️ 系统已自动生成以下提醒：\n" + alertsText;
+          }).join("\\n");
+          msg += "\\n\\n⚠️ 系统已自动生成以下提醒：\\n" + alertsText;
           if (result.taskAlerts.some(function(a) { return a.type === "stock_shortage"; })) {
-            msg += "\n\n👉 建议：请及时补充不足的材料库存";
+            msg += "\\n\\n👉 建议：请及时补充不足的材料库存";
           }
           if (result.taskAlerts.some(function(a) { return a.type === "schedule_compress" || a.type === "schedule_risk"; })) {
-            msg += "\n\n👉 建议：请优先处理该订单，与相关工序负责人沟通调整排班";
+            msg += "\\n\\n👉 建议：请优先处理该订单，与相关工序负责人沟通调整排班";
           }
         }
         alert(msg);
@@ -4879,6 +5230,8 @@ function page() {
       await applyAllOfflineOperationsToLocal();
       loadOrderFilters();
       applyOrderFiltersToUI();
+      loadWorksFilters();
+      applyWorksFiltersToUI();
       renderOrders();
       renderWorks();
       renderCustomers();
@@ -5032,8 +5385,107 @@ function page() {
     }
     bindOrderFilterEvents();
 
-    document.querySelector("#filter-species").onchange = renderWorks;
-    document.querySelector("#filter-mounting").onchange = renderWorks;
+    function bindWorksFilterEvents() {
+      const searchEl = document.querySelector("#works-search");
+      const speciesEl = document.querySelector("#filter-species");
+      const mountingEl = document.querySelector("#filter-mounting");
+      const tagEl = document.querySelector("#filter-tag");
+      const displayEl = document.querySelector("#filter-display");
+      const authEl = document.querySelector("#filter-auth");
+      const monthEl = document.querySelector("#filter-month");
+      const resetEl = document.querySelector("#works-filter-reset");
+
+      let searchTimer = null;
+      if (searchEl) {
+        searchEl.addEventListener("input", () => {
+          clearTimeout(searchTimer);
+          worksFilters.search = searchEl.value;
+          searchTimer = setTimeout(() => {
+            saveWorksFilters();
+            renderWorks();
+          }, 200);
+        });
+      }
+      if (speciesEl) {
+        speciesEl.addEventListener("change", () => {
+          worksFilters.species = speciesEl.value;
+          saveWorksFilters();
+          renderWorks();
+        });
+      }
+      if (mountingEl) {
+        mountingEl.addEventListener("change", () => {
+          worksFilters.mounting = mountingEl.value;
+          saveWorksFilters();
+          renderWorks();
+        });
+      }
+      if (tagEl) {
+        tagEl.addEventListener("change", () => {
+          worksFilters.tag = tagEl.value;
+          saveWorksFilters();
+          renderWorks();
+        });
+      }
+      if (displayEl) {
+        displayEl.addEventListener("change", () => {
+          worksFilters.display = displayEl.value;
+          saveWorksFilters();
+          renderWorks();
+        });
+      }
+      if (authEl) {
+        authEl.addEventListener("change", () => {
+          worksFilters.auth = authEl.value;
+          saveWorksFilters();
+          renderWorks();
+        });
+      }
+      if (monthEl) {
+        monthEl.addEventListener("change", () => {
+          worksFilters.month = monthEl.value;
+          saveWorksFilters();
+          renderWorks();
+        });
+      }
+      if (resetEl) {
+        resetEl.addEventListener("click", () => {
+          resetWorksFilters();
+        });
+      }
+    }
+    bindWorksFilterEvents();
+
+    function bindWorkEditModalEvents() {
+      document.querySelector("#wem-close")?.addEventListener("click", () => {
+        document.querySelector("#work-edit-modal").classList.remove("active");
+        editingWorkId = null;
+      });
+      document.querySelector("#work-edit-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "work-edit-modal") {
+          document.querySelector("#work-edit-modal").classList.remove("active");
+          editingWorkId = null;
+        }
+      });
+      document.querySelector("#wem-save")?.addEventListener("click", saveWorkEdit);
+      document.querySelector("#wem-add-tag")?.addEventListener("click", () => {
+        const inputEl = document.querySelector("#wem-manual-tag");
+        const tag = (inputEl.value || "").trim();
+        if (tag && !workEditTempTags.includes(tag)) {
+          workEditTempTags.push(tag);
+          inputEl.value = "";
+          renderTagSelector();
+        }
+      });
+      document.querySelector("#wem-manual-tag")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          document.querySelector("#wem-add-tag").click();
+        }
+      });
+    }
+    bindWorkEditModalEvents();
+
     document.querySelector("#reload").onclick = load;
 
     document.querySelectorAll(".period-btn").forEach(btn => btn.onclick = async () => {
@@ -6637,6 +7089,30 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (req.method === "GET" && url.pathname === "/api/works") return sendJson(res, 200, byBranch(db.works || []));
+    const workMatch = url.pathname.match(/^\/api\/works\/([^/]+)$/);
+    if (workMatch) {
+      const work = byBranch(db.works || []).find(w => w.id === workMatch[1]);
+      if (!work) return sendJson(res, 404, { error: "work_not_found" });
+      if (req.method === "GET") {
+        return sendJson(res, 200, work);
+      }
+      if (req.method === "PUT") {
+        const input = await body(req);
+        if (input.themeTags !== undefined) {
+          work.themeTags = Array.isArray(input.themeTags) ? input.themeTags : [];
+        }
+        if (input.displayLevel !== undefined) {
+          const validLevels = DISPLAY_LEVELS.map(d => d.value);
+          work.displayLevel = validLevels.includes(input.displayLevel) ? input.displayLevel : "standard";
+        }
+        if (input.clientAuthorization !== undefined) {
+          const validAuth = AUTHORIZATION_STATUS.map(a => a.value);
+          work.clientAuthorization = validAuth.includes(input.clientAuthorization) ? input.clientAuthorization : "unauthorized";
+        }
+        await saveDb(db);
+        return sendJson(res, 200, work);
+      }
+    }
     const paymentsMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/payments$/);
     if (paymentsMatch) {
       const order = db.orders.find(item => item.id === paymentsMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
@@ -6683,7 +7159,10 @@ const server = http.createServer(async (req, res) => {
         inscription: order.inscription,
         owner: order.owner,
         completedAt: order.history.find(h => h.stage === "已完成")?.at || new Date().toISOString(),
-        branchId: order.branchId || branchId
+        branchId: order.branchId || branchId,
+        themeTags: [],
+        displayLevel: "standard",
+        clientAuthorization: "unauthorized"
       };
       db.works.unshift(work);
       order.archived = true;
@@ -7059,7 +7538,7 @@ const server = http.createServer(async (req, res) => {
             }
             if (targetTask) {
               const alertNote = `⚠️ [${alert.severity === "high" ? "高风险" : "中风险"}] ${alert.message}`;
-              targetTask.note = targetTask.note ? (targetTask.note + "\n" + alertNote) : alertNote;
+              targetTask.note = targetTask.note ? (targetTask.note + "\\n" + alertNote) : alertNote;
               if (!targetTask.tags) targetTask.tags = [];
               if (!targetTask.tags.includes("变更提醒")) targetTask.tags.push("变更提醒");
             }
