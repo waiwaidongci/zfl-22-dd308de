@@ -1191,6 +1191,35 @@ function page() {
     .conflict-box .conflict-field { padding:3px 0; border-bottom:1px dashed var(--line); display:flex; justify-content:space-between; }
     .conflict-box .conflict-field:last-child { border-bottom:none; }
     .conflict-box .field-name { color:var(--muted); }
+    .conflict-box .field-diff { background:#fff3e0; border-radius:3px; padding:0 4px; font-weight:700; }
+    .conflict-box.server .field-diff { background:#e8f5f0; }
+    .conflict-resolve-bar { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px dashed #f0c98a; }
+    .conflict-resolve-bar .resolve-btn { padding:7px 16px; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--fg); transition:all .15s; }
+    .conflict-resolve-bar .resolve-btn:hover { box-shadow:0 2px 8px rgba(0,0,0,.08); }
+    .resolve-btn.resolve-local { border-color:#ffe58f; color:#a65b2a; }
+    .resolve-btn.resolve-local:hover { background:#fff3e0; }
+    .resolve-btn.resolve-server { border-color:#bcd8d4; color:#246b68; }
+    .resolve-btn.resolve-server:hover { background:#eef9f4; }
+    .resolve-btn.resolve-merge { border-color:#b7c9e6; color:#2a5da8; }
+    .resolve-btn.resolve-merge:hover { background:#e8f0fb; }
+    .merge-panel { background:#fff; border:1px solid #b7c9e6; border-radius:8px; padding:14px; margin-top:10px; display:none; }
+    .merge-panel.active { display:block; }
+    .merge-panel h6 { margin:0 0 8px; font-size:13px; color:#2a5da8; }
+    .merge-panel textarea { width:100%; min-height:72px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:13px; resize:vertical; font-family:inherit; }
+    .merge-panel textarea:focus { outline:none; border-color:#2a5da8; box-shadow:0 0 0 2px rgba(42,93,168,.12); }
+    .merge-panel .merge-submit-row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+    .merge-panel .merge-submit-row button { padding:6px 18px; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer; }
+    .merge-panel .merge-submit-btn { background:#2a5da8; color:#fff; border:none; }
+    .merge-panel .merge-submit-btn:hover { background:#1e4a8a; }
+    .merge-panel .merge-cancel-btn { background:var(--panel); color:var(--muted); border:1px solid var(--line); }
+    .conflict-field-row { display:grid; grid-template-columns:1fr 40px 1fr; gap:0; align-items:center; font-size:12px; padding:4px 0; border-bottom:1px dashed var(--line); }
+    .conflict-field-row:last-child { border-bottom:none; }
+    .conflict-field-row .cf-label { color:var(--muted); font-size:11px; }
+    .conflict-field-row .cf-server { text-align:right; color:#246b68; }
+    .conflict-field-row .cf-local { color:#a65b2a; }
+    .conflict-field-row .cf-arrow { text-align:center; color:var(--muted); font-size:14px; }
+    .conflict-field-row .cf-diff { font-weight:700; background:#fff3e0; border-radius:3px; padding:0 3px; }
+    .conflict-field-row .cf-server.cf-diff { background:#e8f5f0; }
     .offline-tip { background:#fff7e6; border:1px solid #ffe58f; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#8a6d3b; display:flex; align-items:center; gap:8px; }
     @media (max-width:900px) { header { display:block; padding:18px 16px; } main { padding:16px; } .orders-layout { grid-template-columns:1fr; } .stats { grid-template-columns:1fr 1; } .stat-total { grid-column:span 2; } .calendar-day { min-height:85px; } .calendar-order { font-size:10px; } .customer-stats { grid-template-columns:1fr 1; } .customer-stats .stat-total { grid-column:span 2; } .customer-detail-layout { grid-template-columns:1fr; } .schedule-board { grid-template-columns:1fr; } .schedule-toolbar { flex-direction:column; align-items:stretch; } .schedule-stats { margin-left:0; } .tx-item { grid-template-columns:1fr; } .material-modal-form .row { grid-template-columns:1fr; } .dashboard-stats { grid-template-columns:1fr; } .dashboard-filters { flex-direction:column; align-items:stretch; } .dashboard-date-range { margin-left:0; } .sync-stats { grid-template-columns:1fr 1; } .conflict-side-by-side { grid-template-columns:1fr; } .order-filters { flex-direction:column; align-items:stretch; } .order-filters select, .order-filters input, .order-filters .search-box { width:100%; min-width:0; } }
   </style>
@@ -5051,18 +5080,34 @@ function page() {
             const server = cd.serverSnapshot || {};
             const local = cd.localChange || {};
             const serverHist = (server.history || []).slice(-3).map(h => h.stage + "@" + fmtDate(h.at)).reverse().join(" → ");
-            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情：服务器端数据在此期间已有更新</h5>'
-              + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">建议：对比双方数据后选择「强制覆盖」或「放弃本地」</p>'
+            const statusDiff = server.status !== local.status;
+            const noteDiff = (server.lastNote || "") !== (local.note || "");
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 阶段更新冲突：服务器端数据在此期间已有更新</h5>'
+              + '<div style="font-size:12px;color:#8a5a1e;margin:0 0 10px;">以下字段存在差异，高亮标记为变更项，请选择解决方案</div>'
               + '<div class="conflict-side-by-side">'
               + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器当前</div>'
-              + '<div class="conflict-field"><span class="field-name">状态</span><span style="color:#246b68;font-weight:700;">'+server.status+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">状态</span><span style="color:#246b68;font-weight:700;">'+server.status+'</span>'+(statusDiff ? '<span class="field-diff" style="margin-left:4px;">← 差异</span>' : '')+'</div>'
               + '<div class="conflict-field"><span class="field-name">最后更新</span><span>'+(server.updatedAt ? fmtDate(server.updatedAt) + " " + new Date(server.updatedAt).toLocaleTimeString() : "-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">近期备注</span><span style="font-size:11px;">'+(server.lastNote||"-")+'</span>'+(noteDiff ? '<span class="field-diff" style="margin-left:4px;">← 差异</span>' : '')+'</div>'
               + (serverHist ? '<div class="conflict-field"><span class="field-name">近期历史</span><span style="font-size:11px;">'+serverHist+'</span></div>' : '')
               + '</div>'
               + '<div class="conflict-box local"><div class="conflict-label">📱 离线修改</div>'
-              + '<div class="conflict-field"><span class="field-name">目标状态</span><span style="color:#a65b2a;font-weight:700;">'+local.status+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">变更备注</span><span>'+(local.note||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">目标状态</span><span style="color:#a65b2a;font-weight:700;">'+local.status+'</span>'+(statusDiff ? '<span class="field-diff" style="margin-left:4px;">→ 差异</span>' : '')+'</div>'
+              + '<div class="conflict-field"><span class="field-name">变更备注</span><span>'+(local.note||"-")+'</span>'+(noteDiff ? '<span class="field-diff" style="margin-left:4px;">→ 差异</span>' : '')+'</div>'
               + '<div class="conflict-field"><span class="field-name">离线时间</span><span>'+(local.offlineAt?fmtDate(local.offlineAt)+" "+new Date(local.offlineAt).toLocaleTimeString():"-")+'</span></div>'
+              + '</div></div>'
+              + '<div class="conflict-resolve-bar">'
+              + '<button class="resolve-btn resolve-local" data-resolve="local" data-opid="'+item.opId+'">📱 保留本地版本</button>'
+              + '<button class="resolve-btn resolve-server" data-resolve="server" data-opid="'+item.opId+'">🖥️ 采用服务端</button>'
+              + '<button class="resolve-btn resolve-merge" data-resolve="merge" data-opid="'+item.opId+'">🔗 手动合并</button>'
+              + '</div>'
+              + '<div class="merge-panel" id="merge-'+item.opId+'">'
+              + '<h6>手动合并：编辑备注后重新提交</h6>'
+              + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">将保留本地阶段变更（<strong>'+local.status+'</strong>），并附加您填写的合并备注</div>'
+              + '<textarea id="merge-note-'+item.opId+'" placeholder="输入合并备注，说明冲突处理理由…">合并处理：服务端为'+server.status+'，本地改为'+local.status+'。'+(local.note ? '原始备注：'+local.note+'。' : '')+'</textarea>'
+              + '<div class="merge-submit-row">'
+              + '<button class="merge-submit-btn" data-merge-submit="'+item.opId+'">✅ 确认合并并重新同步</button>'
+              + '<button class="merge-cancel-btn" data-merge-cancel="'+item.opId+'">取消</button>'
               + '</div></div></div>';
           } else if (item.type === "add_payment") {
             const server = cd.serverSnapshot || {};
@@ -5070,24 +5115,68 @@ function page() {
             const existingPayments = (server.payments || []).map(p => p.type + " ¥" + p.amount + " " + p.paidAt + (p.note ? " · " + p.note : "")).join("<br>");
             const paidTotal = (server.payments || []).reduce((s,p) => s + (p.amount||0), 0);
             const localAmt = (local.payment?.amount || 0);
-            const willOver = (server.paid ? "已收清" : "当前已收 ¥" + paidTotal + "，再加 ¥" + localAmt);
-            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情：疑似重复收款或超额收款</h5>'
-              + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">'+(cd.reason === "duplicate_payment" ? "检测到服务器已有相同类型、金额、日期的收款记录" : "收款金额可能超过应收")+'。确认后可选择「强制覆盖」。</p>'
+            const serverPrice = server.price || 0;
+            const willOver = (server.paid ? "已收清" : "当前已收 ¥" + paidTotal + " / ¥" + serverPrice + "，再加 ¥" + localAmt);
+            const overflowAmt = cd.overflowAmount || 0;
+            const isDup = cd.reason === "duplicate_payment";
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 收款登记冲突：'+(isDup ? '检测到重复收款' : '收款金额可能超过应收')+'</h5>'
+              + '<div style="font-size:12px;color:#8a5a1e;margin:0 0 10px;">以下字段存在差异，高亮标记为变更项，请选择解决方案</div>'
               + '<div class="conflict-side-by-side">'
               + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器收款记录</div>'
-              + '<div class="conflict-field"><span class="field-name">订单状态</span><span>'+(server.paid ? '<span style="color:#246b68;font-weight:700;">已收清</span>' : '<span style="color:#a65b2a;font-weight:700;">未收清</span>')+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">订单报价</span><span>¥'+serverPrice+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">收款状态</span><span>'+(server.paid ? '<span style="color:#246b68;font-weight:700;">已收清</span>' : '<span style="color:#a65b2a;font-weight:700;">未收清</span>')+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">已收金额</span><span style="font-weight:700;">¥'+paidTotal+'</span></div>'
               + '<div class="conflict-field"><span class="field-name">已有收款</span><span style="font-size:11px;text-align:right;line-height:1.6;">'+(existingPayments || "无")+'</span></div>'
-              + '<div class="conflict-field"><span class="field-name">风险提示</span><span style="font-size:11px;">'+willOver+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">风险提示</span><span style="font-size:11px;color:'+(overflowAmt > 0 ? '#9b2c2c' : 'var(--muted)')+';">'+willOver+(overflowAmt > 0 ? '（超收 ¥'+overflowAmt+'）' : '')+'</span></div>'
               + '</div>'
               + '<div class="conflict-box local"><div class="conflict-label">📱 离线提交</div>'
               + '<div class="conflict-field"><span class="field-name">收款类型</span><span>'+(local.payment?.type||"-")+'</span></div>'
               + '<div class="conflict-field"><span class="field-name">收款金额</span><span style="color:var(--warn);font-weight:700;">¥'+localAmt+'</span></div>'
               + '<div class="conflict-field"><span class="field-name">收款日期</span><span>'+(local.payment?.paidAt||"-")+'</span></div>'
               + '<div class="conflict-field"><span class="field-name">备注</span><span>'+(local.payment?.note||"-")+'</span></div>'
+              + '</div></div>'
+              + '<div class="conflict-resolve-bar">'
+              + '<button class="resolve-btn resolve-local" data-resolve="local" data-opid="'+item.opId+'">📱 保留本地（强制登记）</button>'
+              + '<button class="resolve-btn resolve-server" data-resolve="server" data-opid="'+item.opId+'">🖥️ 放弃本地收款</button>'
+              + '<button class="resolve-btn resolve-merge" data-resolve="merge" data-opid="'+item.opId+'">🔗 手动合并</button>'
+              + '</div>'
+              + '<div class="merge-panel" id="merge-'+item.opId+'">'
+              + '<h6>手动合并：修改收款信息后重新提交</h6>'
+              + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">将保留本地收款登记（¥'+localAmt+'），并附加您填写的合并备注</div>'
+              + '<textarea id="merge-note-'+item.opId+'" placeholder="输入合并备注，说明冲突处理理由…">合并处理：服务端已收¥'+paidTotal+'/¥'+serverPrice+'，本地登记¥'+localAmt+'。'+(local.payment?.note ? '原始备注：'+local.payment.note+'。' : '')+'</textarea>'
+              + '<div class="merge-submit-row">'
+              + '<button class="merge-submit-btn" data-merge-submit="'+item.opId+'">✅ 确认合并并重新同步</button>'
+              + '<button class="merge-cancel-btn" data-merge-cancel="'+item.opId+'">取消</button>'
               + '</div></div></div>';
           } else if (item.type === "create_order") {
-            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 冲突详情</h5>'
-              + '<div style="font-size:12px;color:var(--muted);padding:8px;background:#fff;border-radius:4px;">创建订单时发生冲突，请重试</div></div>';
+            const d = item.data || {};
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 新增委托冲突：创建订单时与服务端数据冲突</h5>'
+              + '<div style="font-size:12px;color:#8a5a1e;margin:0 0 10px;">本地待创建的委托信息如下，请选择解决方案</div>'
+              + '<div class="conflict-side-by-side">'
+              + '<div class="conflict-box local"><div class="conflict-label">📱 本地待创建委托</div>'
+              + '<div class="conflict-field"><span class="field-name">鱼种</span><span>'+(d.fishSpecies||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">尺寸</span><span>'+(d.size||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">纸张</span><span>'+(d.paper||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">报价</span><span style="font-weight:700;">¥'+(d.price||0)+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">负责人</span><span>'+(d.owner||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">交付日期</span><span>'+(d.dueDate||"-")+'</span></div>'
+              + (d.newCustomer?.name ? '<div class="conflict-field"><span class="field-name">新客户</span><span>'+d.newCustomer.name+(d.newCustomer.phone?' · '+d.newCustomer.phone:'')+'</span></div>' : '')
+              + '</div>'
+              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器</div>'
+              + '<div style="font-size:12px;color:var(--muted);padding:8px 0;">服务端可能已存在相同委托，或网络中断导致创建失败。选择「强制重新提交」将再次尝试创建。</div>'
+              + '</div></div>'
+              + '<div class="conflict-resolve-bar">'
+              + '<button class="resolve-btn resolve-local" data-resolve="local" data-opid="'+item.opId+'">📱 强制重新提交</button>'
+              + '<button class="resolve-btn resolve-server" data-resolve="server" data-opid="'+item.opId+'">🖥️ 放弃创建</button>'
+              + '<button class="resolve-btn resolve-merge" data-resolve="merge" data-opid="'+item.opId+'">🔗 手动合并</button>'
+              + '</div>'
+              + '<div class="merge-panel" id="merge-'+item.opId+'">'
+              + '<h6>手动合并：修改委托信息后重新提交</h6>'
+              + '<textarea id="merge-note-'+item.opId+'" placeholder="输入合并备注，说明调整原因…">合并处理：重新提交委托，鱼种'+(d.fishSpecies||"-")+'，报价¥'+(d.price||0)+'。</textarea>'
+              + '<div class="merge-submit-row">'
+              + '<button class="merge-submit-btn" data-merge-submit="'+item.opId+'">✅ 确认合并并重新同步</button>'
+              + '<button class="merge-cancel-btn" data-merge-cancel="'+item.opId+'">取消</button>'
+              + '</div></div></div>';
           }
         }
 
@@ -5096,8 +5185,6 @@ function page() {
           actionsHtml = '<div class="sync-actions"><button class="secondary" data-sync-discard="'+item.opId+'">取消此操作</button></div>';
         } else if (item.status === "failed") {
           actionsHtml = '<div class="sync-actions"><button data-sync-retry="'+item.opId+'">🔄 重试</button><button class="secondary" data-sync-discard="'+item.opId+'">删除记录</button></div>';
-        } else if (item.status === "conflict") {
-          actionsHtml = '<div class="sync-actions"><button data-sync-force="'+item.opId+'">✊ 强制使用本地</button><button class="secondary" data-sync-discard="'+item.opId+'">🤝 以服务器为准</button></div>';
         } else if (item.status === "success") {
           const timeAgo = item.syncedAt ? " · " + timeAgoText(item.syncedAt) : "";
           actionsHtml = '<div class="sync-actions"><span style="font-size:12px;color:var(--accent);font-weight:600;">✓ 同步完成'+timeAgo+'</span></div>';
@@ -5129,19 +5216,66 @@ function page() {
           await triggerSync();
         };
       });
-      listEl.querySelectorAll("[data-sync-force]").forEach(btn => {
+      listEl.querySelectorAll("[data-resolve]").forEach(btn => {
         btn.onclick = async () => {
-          const opId = btn.dataset.syncForce;
+          const opId = btn.dataset.opid;
+          const action = btn.dataset.resolve;
+          if (action === "server") {
+            if (!confirm("确认采用服务端数据，放弃本地修改？")) return;
+            await removeOfflineQueueItems([opId]);
+            await updateNetworkUI();
+            renderSync();
+          } else if (action === "local") {
+            const queue = await getOfflineQueue();
+            const item = queue.find(q => q.opId === opId);
+            if (!item) return;
+            if (item.type === "add_payment" || item.type === "update_stage") {
+              item.data.forceOverride = true;
+            }
+            await saveOfflineQueue(queue);
+            await updateOfflineQueueItem(opId, { status: "pending", error: null, conflictData: null, data: item.data });
+            renderSync();
+            await triggerSync();
+          } else if (action === "merge") {
+            const panel = listEl.querySelector("#merge-" + opId);
+            if (panel) panel.classList.toggle("active");
+          }
+        };
+      });
+      listEl.querySelectorAll("[data-merge-submit]").forEach(btn => {
+        btn.onclick = async () => {
+          const opId = btn.dataset.mergeSubmit;
+          const noteEl = listEl.querySelector("#merge-note-" + opId);
+          const mergeNote = noteEl ? noteEl.value.trim() : "";
           const queue = await getOfflineQueue();
           const item = queue.find(q => q.opId === opId);
           if (!item) return;
-          if (item.type === "add_payment" || item.type === "update_stage") {
+          if (item.type === "update_stage") {
             item.data.forceOverride = true;
+            if (mergeNote) {
+              item.data.note = (item.data.note || "") + "【合并备注：" + mergeNote + "】";
+            }
+          } else if (item.type === "add_payment") {
+            item.data.forceOverride = true;
+            if (mergeNote && item.data.payment) {
+              item.data.payment.note = (item.data.payment.note || "") + "【合并备注：" + mergeNote + "】";
+            }
+          } else if (item.type === "create_order") {
+            if (mergeNote) {
+              item.data.note = (item.data.note || "") + "【合并备注：" + mergeNote + "】";
+            }
           }
           await saveOfflineQueue(queue);
           await updateOfflineQueueItem(opId, { status: "pending", error: null, conflictData: null, data: item.data });
           renderSync();
           await triggerSync();
+        };
+      });
+      listEl.querySelectorAll("[data-merge-cancel]").forEach(btn => {
+        btn.onclick = () => {
+          const opId = btn.dataset.mergeCancel;
+          const panel = listEl.querySelector("#merge-" + opId);
+          if (panel) panel.classList.remove("active");
         };
       });
     }
@@ -7921,6 +8055,7 @@ const server = http.createServer(async (req, res) => {
                   serverSnapshot: {
                     id: order.id,
                     status: order.status,
+                    lastNote: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].note || "" : "",
                     history: order.history || [],
                     updatedAt: serverLastUpdate
                   },
