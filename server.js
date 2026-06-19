@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dbPath = join(__dirname, "data", "fish-rubbing.json");
+const dbPath = process.env.DB_PATH || join(__dirname, "data", "fish-rubbing.json");
 const port = Number(process.env.PORT || 3022);
 
 const DEFAULT_BRANCH_ID = "BR-DEFAULT";
@@ -10113,4 +10113,30 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, () => console.log(`Fish rubbing studio app listening on http://localhost:${port}`));
+export const __test__ = {
+  estimateMaterialUsage,
+  calculateMaterialDiff,
+  checkStockAfterChange,
+  assessScheduleRisk,
+  calculateChangeImpact,
+  parseSizeToArea,
+  calculateRemainingWorkDays,
+  daysBetween,
+  addDays,
+  DEFAULT_MATERIALS,
+  MATERIAL_CATEGORIES,
+  DEFAULT_BRANCH_ID,
+  stages,
+  scheduleStages,
+  STAGE_DURATION_DAYS,
+  seed,
+  toLocalDateString,
+  generateInitialTasks
+};
+
+if (!process.env.NO_LISTEN) {
+  const scriptPath = process.argv[1] || "";
+  if (!scriptPath.endsWith("node:test") && !scriptPath.includes("/test/") && !scriptPath.includes("\\test\\")) {
+    server.listen(port, () => console.log(`Fish rubbing studio app listening on http://localhost:${port}`));
+  }
+}
