@@ -6280,7 +6280,6 @@ function page() {
         const blocker = blockedByMap.get(item.opId);
         const blockedByOpId = item._blockedBy;
         if (item.status === "blocked" && blockedByOpId) {
-          const queue = __inMemoryQueueForBlockedLabel || (window.__inMemoryQueueForBlockedLabel = []);
           let blockerLabel = "前序操作";
           let blockerStatusLabel = "失败/冲突";
           let blockerShortId = blockedByOpId.replace(/^OP-/, "").slice(0, 12);
