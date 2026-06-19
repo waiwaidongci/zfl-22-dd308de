@@ -23,9 +23,7 @@ import {
   toLocalDateString,
   daysBetween,
   addDays,
-  normalizeText,
   formatPaymentRecord,
-  stringSimilarity,
   getWeekRange
 } from "./lib/utils.js";
 
@@ -45,7 +43,6 @@ import {
 } from "./lib/schedule.js";
 
 import {
-  clientNameFromOrderInput,
   createOrderConflictSnapshot,
   createOrderLocalSnapshot,
   findSimilarOrderConflict,
@@ -54,12 +51,11 @@ import {
 
 import {
   enrichCustomer,
-  calculateCustomerSimilarity,
   findSimilarCustomers,
   enrichMasterCustomer
 } from "./lib/customers.js";
 
-import { loadDb, saveDb, getDbPath } from "./lib/db.js";
+import { loadDb, saveDb } from "./lib/db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || join(__dirname, "data", "fish-rubbing.json");
