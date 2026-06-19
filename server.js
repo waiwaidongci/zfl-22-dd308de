@@ -822,20 +822,20 @@ function calculateCustomerSimilarity(c1, c2) {
   let reasons = [];
   const nameSim = stringSimilarity(c1.name, c2.name);
   if (nameSim >= 0.6) {
-    score += nameSim * 0.4;
+    score = Math.max(score, nameSim);
     reasons.push("姓名相似");
   }
   if (c1.phone && c2.phone) {
     const phoneSim = stringSimilarity(c1.phone.replace(/\D/g, ""), c2.phone.replace(/\D/g, ""));
     if (phoneSim >= 0.8) {
-      score += phoneSim * 0.35;
+      score = Math.max(score, phoneSim);
       reasons.push("电话相似");
     }
   }
   if (c1.wechat && c2.wechat) {
     const wechatSim = stringSimilarity(c1.wechat, c2.wechat);
     if (wechatSim >= 0.7) {
-      score += wechatSim * 0.25;
+      score = Math.max(score, wechatSim);
       reasons.push("微信相似");
     }
   }
@@ -3689,6 +3689,23 @@ function page() {
               await loadCustomerMasters();
             } catch (e) { alert(e.message); }
           };
+          document.querySelectorAll("[data-unlink-customer]").forEach(btn => {
+            btn.onclick = async () => {
+              const customerId = btn.dataset.unlinkCustomer;
+              if (!confirm("确认解除这位分店客户与主档案的关联？历史订单和作品不会丢失。")) return;
+              try {
+                await api("/api/customer-masters/" + master.id + "/unlink/" + customerId, { method: "POST" });
+                alert("已解除关联");
+                await loadCustomerMasters();
+                try {
+                  await api("/api/customer-masters/" + master.id);
+                  renderMasterDetail();
+                } catch (e) {
+                  backToMastersList();
+                }
+              } catch (e) { alert(e.message); }
+            };
+          });
         }
       } catch (e) {
         alert(e.message);
