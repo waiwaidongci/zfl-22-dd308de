@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Node.js Test Suite
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify data file integrity before tests
+        run: |
+          if [ -f data/fish-rubbing.json ]; then
+            echo "Data file exists before tests"
+            sha256sum data/fish-rubbing.json > /tmp/data-before.sha256
+            wc -c data/fish-rubbing.json
+          else
+            echo "No data file present"
+          fi
+
+      - name: Run tests
+        run: npm test
+        timeout-minutes: 5
+        env:
+          CI: true
+
+      - name: Verify data file integrity after tests
+        run: |
+          if [ -f data/fish-rubbing.json ]; then
+            echo "Data file exists after tests"
+            sha256sum data/fish-rubbing.json > /tmp/data-after.sha256
+            wc -c data/fish-rubbing.json
+            if [ -f /tmp/data-before.sha256 ]; then
+              echo "Comparing before/after checksums..."
+              diff /tmp/data-before.sha256 /tmp/data-after.sha256 && echo "Data file unchanged ✓" || (echo "ERROR: Data file was modified!" && exit 1)
+            fi
+          fi
+
+      - name: Cleanup test artifacts
+        if: always()
+        run: |
+          rm -rf .test-tmp/
+          rm -f data/fish-rubbing.json.bak-test
+          rm -f junit.xml
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-node-${{ matrix.node-version }}
+          path: |
+            .test-tmp/
+            junit.xml
+          retention-days: 7

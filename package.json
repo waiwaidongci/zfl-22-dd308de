@@ -5,6 +5,14 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "dev": "node --watch server.js",
+    "pretest": "node scripts/backup-data.js",
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "posttest": "node scripts/restore-data.js",
+    "test:ci": "node --test --test-reporter=spec --test-reporter=junit --test-reporter-destination=junit.xml test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

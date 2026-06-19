@@ -20,3 +20,6 @@ coverage/
 .idea/
 
 .test-tmp/
+junit.xml
+fish-rubbing.json.bak-test
+data/fish-rubbing.json.bak-test

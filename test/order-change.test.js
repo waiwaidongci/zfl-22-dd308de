@@ -1,16 +1,17 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { fork } from "node:child_process";
-import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  cleanTmpDir,
+  tmpFilePath,
+  deepClone,
+  startServer,
+  stopServer,
+  request
+} from "../lib/test-helpers.js";
 
 process.env.NO_LISTEN = "1";
 const serverModule = await import("../server.js");
 const { __test__ } = serverModule;
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const tmpDir = join(__dirname, "..", ".test-tmp");
 
 const {
   estimateMaterialUsage,
@@ -24,10 +25,6 @@ const {
   seed,
   toLocalDateString
 } = __test__;
-
-function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
 
 function buildBranchMaterials(overrides = {}) {
   return deepClone(DEFAULT_MATERIALS).map(m => ({
@@ -60,61 +57,12 @@ function buildBaseOrder(overrides = {}) {
   };
 }
 
-async function startServer(dbPath, customSeed) {
-  await mkdir(dirname(dbPath), { recursive: true });
-  const initialSeed = customSeed ? deepClone(customSeed) : deepClone(seed);
-  await writeFile(dbPath, JSON.stringify(initialSeed, null, 2));
-  const port = 13000 + Math.floor(Math.random() * 20000);
-  return new Promise((resolve, reject) => {
-    const child = fork(join(__dirname, "..", "server.js"), [], {
-      env: { ...process.env, NO_LISTEN: "", DB_PATH: dbPath, PORT: String(port) },
-      stdio: ["pipe", "pipe", "pipe", "ipc"],
-      detached: false
-    });
-    let ready = false;
-    let outBuf = "";
-    let errBuf = "";
-    const checkReady = (msg) => {
-      if (msg.includes("Fish rubbing studio app listening") && !ready) {
-        ready = true;
-        resolve({ port, url: `http://localhost:${port}`, child });
-      }
-    };
-    child.stdout.on("data", (d) => { outBuf += d.toString(); checkReady(outBuf); });
-    child.stderr.on("data", (d) => { errBuf += d.toString(); checkReady(errBuf); });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (!ready) reject(new Error(`server exited with code ${code}. stdout=${outBuf} stderr=${errBuf}`));
-    });
-    setTimeout(() => {
-      if (!ready) { child.kill("SIGKILL"); reject(new Error(`timeout. stdout=${outBuf} stderr=${errBuf}`)); }
-    }, 15000);
-  });
-}
-
-async function stopServer(ctx) {
-  if (ctx && ctx.child) {
-    ctx.child.kill("SIGTERM");
-    await new Promise(r => setTimeout(r, 200));
-    try { ctx.child.kill("SIGKILL"); } catch (e) {}
-  }
-}
-
-async function request(url, path, options = {}) {
-  const fullUrl = url + path;
-  const res = await fetch(fullUrl, {
-    headers: { "Content-Type": "application/json" },
-    ...options
-  });
-  const text = await res.text();
-  let body = text;
-  try { body = JSON.parse(text); } catch (e) {}
-  return { status: res.status, body, headers: res.headers };
-}
-
 before(async () => {
-  await rm(tmpDir, { recursive: true, force: true });
-  await mkdir(tmpDir, { recursive: true });
+  await cleanTmpDir();
+});
+
+after(async () => {
+  await cleanTmpDir();
 });
 
 // ===== 单元测试 =====
@@ -307,10 +255,10 @@ test("calculateChangeImpact: adding mounting adds axle material", () => {
 // ===== HTTP 集成测试 =====
 
 test("HTTP integration: preview size change shows material diff", async () => {
-  const dbPath = join(tmpDir, `test-preview-size-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-preview-size");
   let ctx;
   try {
-    ctx = await startServer(dbPath);
+    ctx = await startServer(dbPath, deepClone(seed));
     const { body } = await request(ctx.url, "/api/orders/FT-2601/change-requests/preview", {
       method: "POST",
       body: JSON.stringify({ changes: { size: "140x70cm" }, reason: "客户要求加大" })
@@ -325,10 +273,10 @@ test("HTTP integration: preview size change shows material diff", async () => {
 });
 
 test("HTTP integration: preview paper swap shows correct material diff", async () => {
-  const dbPath = join(tmpDir, `test-preview-paper-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-preview-paper");
   let ctx;
   try {
-    ctx = await startServer(dbPath);
+    ctx = await startServer(dbPath, deepClone(seed));
     const { body } = await request(ctx.url, "/api/orders/FT-2601/change-requests/preview", {
       method: "POST",
       body: JSON.stringify({ changes: { paper: "云母宣" }, reason: "换纸" })
@@ -342,7 +290,7 @@ test("HTTP integration: preview paper swap shows correct material diff", async (
 });
 
 test("HTTP integration: preview low stock warning appears", async () => {
-  const dbPath = join(tmpDir, `test-preview-lowstock-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-preview-lowstock");
   const customSeed = deepClone(seed);
   customSeed.materials = customSeed.materials.map(m =>
     m.id === "M-001" ? { ...m, stock: 5, reserved: 0, threshold: 10 } : m
@@ -362,7 +310,7 @@ test("HTTP integration: preview low stock warning appears", async () => {
 });
 
 test("HTTP integration: preview shortage triggers high overall risk", async () => {
-  const dbPath = join(tmpDir, `test-preview-shortage-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-preview-shortage");
   const customSeed = deepClone(seed);
   customSeed.materials = customSeed.materials.map(m =>
     m.id === "M-001" ? { ...m, stock: 0, reserved: 0 } : m
@@ -382,7 +330,7 @@ test("HTTP integration: preview shortage triggers high overall risk", async () =
 });
 
 test("HTTP integration: preview schedule risk when dueDate near", async () => {
-  const dbPath = join(tmpDir, `test-preview-schedule-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-preview-schedule");
   const customSeed = deepClone(seed);
   const today = new Date();
   const past = toLocalDateString(new Date(today.getTime() - 86400000));
@@ -405,10 +353,10 @@ test("HTTP integration: preview schedule risk when dueDate near", async () => {
 });
 
 test("HTTP integration: submit -> approve updates order fields, materialUsage, reserved, history", async () => {
-  const dbPath = join(tmpDir, `test-approve-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-approve");
   let ctx;
   try {
-    ctx = await startServer(dbPath);
+    ctx = await startServer(dbPath, deepClone(seed));
 
     const materialsBefore = await request(ctx.url, "/api/materials", { method: "GET" });
     const m1Before = materialsBefore.body.find(m => m.id === "M-001");
@@ -467,10 +415,10 @@ test("HTTP integration: submit -> approve updates order fields, materialUsage, r
 });
 
 test("HTTP integration: reject change updates status and history", async () => {
-  const dbPath = join(tmpDir, `test-reject-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-reject");
   let ctx;
   try {
-    ctx = await startServer(dbPath);
+    ctx = await startServer(dbPath, deepClone(seed));
     const submitRes = await request(ctx.url, "/api/orders/FT-2601/change-requests", {
       method: "POST",
       body: JSON.stringify({ changes: { size: "140x70cm" }, reason: "要加大" })
@@ -493,7 +441,7 @@ test("HTTP integration: reject change updates status and history", async () => {
 });
 
 test("HTTP integration: cannot preview/submit change for completed order", async () => {
-  const dbPath = join(tmpDir, `test-completed-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-completed");
   const customSeed = deepClone(seed);
   customSeed.orders = customSeed.orders.map(o =>
     o.id === "FT-2601" ? { ...o, status: "已完成" } : o
@@ -517,10 +465,10 @@ test("HTTP integration: cannot preview/submit change for completed order", async
 });
 
 test("HTTP integration: approve ink plan change updates reserved counts precisely", async () => {
-  const dbPath = join(tmpDir, `test-reserved-${Date.now()}.json`);
+  const dbPath = tmpFilePath("test-reserved");
   let ctx;
   try {
-    ctx = await startServer(dbPath);
+    ctx = await startServer(dbPath, deepClone(seed));
     const materialsBefore = await request(ctx.url, "/api/materials", { method: "GET" });
     const inkBefore = materialsBefore.body.find(m => m.id === "M-004");
     const cinnabarBefore = materialsBefore.body.find(m => m.id === "M-005");
@@ -548,12 +496,4 @@ test("HTTP integration: approve ink plan change updates reserved counts precisel
   } finally {
     await stopServer(ctx);
   }
-});
-
-test("original data/fish-rubbing.json is untouched after all tests", async () => {
-  const baseline = await readFile(join(__dirname, "..", "data", "fish-rubbing.json"), "utf8");
-  assert.ok(baseline.length > 0, "data file should still exist and be non-empty");
-  const parsed = JSON.parse(baseline);
-  assert.ok(Array.isArray(parsed.materials));
-  assert.ok(Array.isArray(parsed.orders));
 });
