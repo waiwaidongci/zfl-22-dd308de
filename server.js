@@ -1781,6 +1781,7 @@ function page() {
           <button data-sync-filter="success">成功</button>
           <button data-sync-filter="failed">失败</button>
           <button data-sync-filter="conflict">冲突</button>
+          <button data-sync-filter="blocked">被阻塞</button>
         </div>
       </div>
       <div class="sync-stats" id="sync-stats"></div>
@@ -2643,6 +2644,14 @@ function page() {
                 _consolidated: id !== op.opId,
                 _blockedChain: true
               });
+            } else if (r.status === "blocked") {
+              await updateOfflineQueueItem(id, {
+                status: "blocked",
+                error: r.error || "chain_blocked",
+                syncedAt: new Date().toISOString(),
+                _consolidated: id !== op.opId,
+                _blockedBy: r.blockedBy || null
+              });
             } else {
               await updateOfflineQueueItem(id, {
                 status: "failed",
@@ -2660,7 +2669,8 @@ function page() {
           let foundBlocking = false;
           for (const opId of opIds) {
             const r = resultByOpId.get(opId);
-            if (foundBlocking && (!r || r.status === "success")) {
+            if (foundBlocking && r && r.status === "blocked" && r.blockedBy) continue;
+            if (foundBlocking && (!r || (r.status !== "failed" && r.status !== "conflict" && r.status !== "blocked"))) {
               await updateOfflineQueueItem(opId, {
                 _blockedBy: opIds.find(oid => {
                   const rr = resultByOpId.get(oid);
@@ -6070,11 +6080,13 @@ function page() {
 
     async function renderSync() {
       const queue = await getOfflineQueue();
+      window.__lastRenderedQueue = queue;
       const filtered = syncFilter === "all" ? queue : queue.filter(q => q.status === syncFilter);
       const pendingCount = queue.filter(q => q.status === "pending").length;
       const successCount = queue.filter(q => q.status === "success").length;
       const failedCount = queue.filter(q => q.status === "failed").length;
       const conflictCount = queue.filter(q => q.status === "conflict").length;
+      const blockedCount = queue.filter(q => q.status === "blocked").length;
       const consolidatedCount = queue.filter(q => q._consolidated).length;
 
       const statsEl = document.querySelector("#sync-stats");
@@ -6082,23 +6094,26 @@ function page() {
         statsEl.innerHTML = '<div class="sync-stat pending"><strong>'+pendingCount+'</strong><div class="label">待同步</div></div>'
           + '<div class="sync-stat success"><strong>'+successCount+'</strong><div class="label">已成功</div></div>'
           + '<div class="sync-stat failed"><strong>'+failedCount+'</strong><div class="label">失败</div></div>'
-          + '<div class="sync-stat conflict"><strong>'+conflictCount+'</strong><div class="label">需人工确认</div></div>';
+          + '<div class="sync-stat conflict"><strong>'+conflictCount+'</strong><div class="label">需人工确认</div></div>'
+          + (blockedCount > 0 ? '<div class="sync-stat failed"><strong>'+blockedCount+'</strong><div class="label">被阻塞</div></div>' : '');
       }
 
-      const allOrderChains = buildOperationChains(queue.filter(q => q.status === "pending" || q.status === "failed" || q.status === "conflict"));
-      const allMaterialChains = buildMaterialOperationChains(queue.filter(q => q.status === "pending" || q.status === "failed" || q.status === "conflict"));
+      const activeStatuses = ["pending", "failed", "conflict", "blocked"];
+      const activeFilter = q => activeStatuses.includes(q.status);
+      const allOrderChains = buildOperationChains(queue.filter(activeFilter));
+      const allMaterialChains = buildMaterialOperationChains(queue.filter(activeFilter));
       const timelineEl = document.querySelector("#sync-chain-timeline");
       if (timelineEl) {
         const allChains = [];
         for (const [orderId, ops] of allOrderChains) {
           if (ops.length > 1) {
-            const hasBlocking = ops.some(o => o.status === "failed" || o.status === "conflict");
+            const hasBlocking = ops.some(o => o.status === "failed" || o.status === "conflict" || o.status === "blocked");
             allChains.push({ key: "📦 " + orderId, ops, hasBlocking, type: "order" });
           }
         }
         for (const [materialId, ops] of allMaterialChains) {
           if (ops.length > 1) {
-            const hasBlocking = ops.some(o => o.status === "failed" || o.status === "conflict");
+            const hasBlocking = ops.some(o => o.status === "failed" || o.status === "conflict" || o.status === "blocked");
             allChains.push({ key: "🧵 " + (ops[0].data.materialName || materialId), ops, hasBlocking, type: "material" });
           }
         }
@@ -6108,7 +6123,7 @@ function page() {
               const statusIcon = chain.hasBlocking ? "⚠️" : "✅";
               const steps = chain.ops.map((op, idx) => {
                 const label = op.type === "create_order" ? "新增委托" : (op.type === "update_stage" ? "阶段更新" : (op.type === "add_payment" ? "登记收款" : (op.type === "edit_task" ? "排班编辑" : (op.type === "submit_change_request" ? "变更申请" : (op.type === "stock_in" ? "材料入库" : (op.type === "stock_check" ? "库存盘点" : op.type))))));
-                const dot = op.status === "success" ? "🟢" : (op.status === "failed" ? "🔴" : (op.status === "conflict" ? "🟡" : "⚪"));
+                const dot = op.status === "success" ? "🟢" : (op.status === "failed" ? "🔴" : (op.status === "conflict" ? "🟡" : (op.status === "blocked" ? "🟠" : "⚪")));
                 const blocked = op._blockedBy ? " ⏸️" : "";
                 return dot + " " + label + blocked;
               }).join(" → ");
@@ -6149,8 +6164,10 @@ function page() {
       for (const [chainId, chain] of [...orderChainsMap, ...materialChainsMap]) {
         let foundBlocking = false;
         for (const op of chain) {
-          if (foundBlocking && op.status === "pending") {
-            blockedByMap.set(op.opId, chain.find(c => c.status === "failed" || c.status === "conflict"));
+          if (foundBlocking && (op.status === "pending" || op.status === "blocked")) {
+            if (!blockedByMap.has(op.opId)) {
+              blockedByMap.set(op.opId, chain.find(c => c.status === "failed" || c.status === "conflict"));
+            }
           }
           if (op.status === "failed" || op.status === "conflict") {
             foundBlocking = true;
@@ -6162,8 +6179,9 @@ function page() {
         const typeLabel = item.type === "create_order" ? "新增委托" : (item.type === "update_stage" ? "阶段更新" : (item.type === "add_payment" ? "登记收款" : (item.type === "edit_task" ? "排班编辑" : (item.type === "submit_change_request" ? "变更申请" : (item.type === "stock_in" ? "材料入库" : (item.type === "stock_check" ? "库存盘点" : item.type))))));
         let displayStatus = item.status;
         if (item._consolidated && item.status === "success") displayStatus = "consolidated-success";
-        const statusText = item.status === "pending" ? "待同步" : item.status === "success" ? (item._consolidated ? "合并成功" : "成功") : item.status === "failed" ? "失败" : item.status === "conflict" ? "需人工确认" : "同步中";
-        const statusBadge = '<span class="sync-status-badge badge-'+(item._consolidated && item.status === "success" ? "success" : item.status)+'">'+statusText+'</span>';
+        const statusText = item.status === "pending" ? "待同步" : item.status === "success" ? (item._consolidated ? "合并成功" : "成功") : item.status === "failed" ? "失败" : item.status === "conflict" ? "需人工确认" : item.status === "blocked" ? "被阻塞" : "同步中";
+        const badgeClass = item.status === "blocked" ? "failed" : (item._consolidated && item.status === "success" ? "success" : item.status);
+        const statusBadge = '<span class="sync-status-badge badge-'+badgeClass+'">'+statusText+'</span>';
         const statusClass = "status-" + item.status + (item._consolidated ? ' consolidated-item' : '');
         const chainInfo = (item.data && item.data._chainLength) ? '<span style="background:#fff3e0;color:#a65b2a;padding:1px 7px;border-radius:4px;font-size:11px;">链×' + item.data._chainLength + '</span>' : "";
         const opIdShort = item.opId.replace(/^OP-/, "").slice(0, 12);
@@ -6261,10 +6279,22 @@ function page() {
         let blockedHtml = "";
         const blocker = blockedByMap.get(item.opId);
         const blockedByOpId = item._blockedBy;
-        if (blocker && item.status === "pending") {
+        if (item.status === "blocked" && blockedByOpId) {
+          const queue = __inMemoryQueueForBlockedLabel || (window.__inMemoryQueueForBlockedLabel = []);
+          let blockerLabel = "前序操作";
+          let blockerStatusLabel = "失败/冲突";
+          let blockerShortId = blockedByOpId.replace(/^OP-/, "").slice(0, 12);
+          const foundBlocker = (window.__lastRenderedQueue || []).find(q => q.opId === blockedByOpId);
+          if (foundBlocker) {
+            blockerLabel = foundBlocker.type === "create_order" ? "新增委托" : (foundBlocker.type === "update_stage" ? "阶段更新" : (foundBlocker.type === "add_payment" ? "登记收款" : (foundBlocker.type === "edit_task" ? "排班编辑" : (foundBlocker.type === "submit_change_request" ? "变更申请" : (foundBlocker.type === "stock_in" ? "材料入库" : (foundBlocker.type === "stock_check" ? "库存盘点" : foundBlocker.type))))));
+            blockerStatusLabel = foundBlocker.status === "failed" ? "失败" : (foundBlocker.status === "conflict" ? "冲突" : "阻塞");
+            blockerShortId = foundBlocker.opId.replace(/^OP-/, "").slice(0, 12);
+          }
+          blockedHtml = '<div style="background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;font-size:12px;color:#8a6d3b;margin-top:4px;"><strong>⏸️ 操作已被后端阻断</strong>：需先解决「'+blockerLabel+'」（'+blockerShortId+'）的'+blockerStatusLabel+'后，此操作才能继续同步</div>';
+        } else if (blocker && (item.status === "pending" || item.status === "blocked")) {
           const blockerLabel = blocker.type === "create_order" ? "新增委托" : (blocker.type === "update_stage" ? "阶段更新" : (blocker.type === "add_payment" ? "登记收款" : (blocker.type === "edit_task" ? "排班编辑" : (blocker.type === "submit_change_request" ? "变更申请" : (blocker.type === "stock_in" ? "材料入库" : (blocker.type === "stock_check" ? "库存盘点" : blocker.type))))));
           blockedHtml = '<div style="background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;font-size:12px;color:#8a6d3b;margin-top:4px;">⏸️ 被'+blockerLabel+'（'+blocker.opId.replace(/^OP-/, "").slice(0, 12)+'）阻塞，需先解决该操作的'+(blocker.status === "failed" ? "失败" : "冲突")+'</div>';
-        } else if (blockedByOpId && (item.status === "success" || item.status === "pending")) {
+        } else if (blockedByOpId && !blocker && (item.status === "success" || item.status === "pending")) {
           blockedHtml = '<div style="background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;font-size:12px;color:#8a6d3b;margin-top:4px;">⏸️ 此操作位于阻塞链中，前序操作'+blockedByOpId.replace(/^OP-/, "").slice(0, 12)+'失败/冲突可能影响结果</div>';
         }
 
@@ -6426,6 +6456,8 @@ function page() {
           actionsHtml = '<div class="sync-actions"><button class="secondary" data-sync-discard="'+item.opId+'">取消此操作</button></div>';
         } else if (item.status === "failed") {
           actionsHtml = '<div class="sync-actions"><button data-sync-retry="'+item.opId+'">🔄 重试</button><button class="secondary" data-sync-discard="'+item.opId+'">删除记录</button></div>';
+        } else if (item.status === "blocked") {
+          actionsHtml = '<div class="sync-actions"><span style="font-size:12px;color:#8a6d3b;font-weight:600;">⚠️ 需先解决上方阻塞操作后再同步</span><button data-sync-retry="'+item.opId+'">🔄 解除阻塞并重试</button><button class="secondary" data-sync-discard="'+item.opId+'">删除记录</button></div>';
         } else if (item.status === "success") {
           const timeAgo = item.syncedAt ? " · " + timeAgoText(item.syncedAt) : "";
           actionsHtml = '<div class="sync-actions"><span style="font-size:12px;color:var(--accent);font-weight:600;">✓ 同步完成'+timeAgo+'</span></div>';
@@ -9544,9 +9576,45 @@ const server = http.createServer(async (req, res) => {
       const batchPaymentByOrder = new Map();
       const processedOrderIds = new Set();
 
+      const opIdToChains = new Map();
+      const chainBlockingOp = new Map();
+      for (const [chainKey, opIds] of Object.entries(chainInfo)) {
+        for (let i = 0; i < opIds.length; i++) {
+          const opId = opIds[i];
+          if (!opIdToChains.has(opId)) opIdToChains.set(opId, []);
+          opIdToChains.get(opId).push({ chainKey, index: i });
+        }
+      }
+      const opIdToIndex = new Map(operations.map((o, i) => [o.id, i]));
+      const chainIndexToOpId = new Map();
+      for (const [chainKey, opIds] of Object.entries(chainInfo)) {
+        for (let i = 0; i < opIds.length; i++) {
+          chainIndexToOpId.set(chainKey + ":" + i, opIds[i]);
+        }
+      }
+
       for (let opIdx = 0; opIdx < operations.length; opIdx++) {
         const op = operations[opIdx];
-        const result = { opId: op.id, type: op.type, status: "success", data: null, error: null, conflict: null };
+        const result = { opId: op.id, type: op.type, status: "success", data: null, error: null, conflict: null, blockedBy: null };
+        let shouldSkip = false;
+        const chains = opIdToChains.get(op.id) || [];
+        for (const { chainKey, index } of chains) {
+          if (chainBlockingOp.has(chainKey)) {
+            const blocker = chainBlockingOp.get(chainKey);
+            const blockerIdx = opIdToIndex.get(blocker);
+            if (blockerIdx !== undefined && blockerIdx < opIdx) {
+              result.status = "blocked";
+              result.blockedBy = blocker;
+              result.error = "chain_blocked: predecessor " + blocker + " " + (results[blockerIdx] ? (results[blockerIdx].status) : "failed");
+              shouldSkip = true;
+              break;
+            }
+          }
+        }
+        if (shouldSkip) {
+          results.push(result);
+          continue;
+        }
         try {
           if (op.type === "create_order") {
             const createInput = op.data;
@@ -10024,6 +10092,14 @@ const server = http.createServer(async (req, res) => {
         } catch (err) {
           result.status = "failed";
           result.error = err.message;
+        }
+        if (result.status === "failed" || result.status === "conflict") {
+          const chains2 = opIdToChains.get(op.id) || [];
+          for (const { chainKey } of chains2) {
+            if (!chainBlockingOp.has(chainKey)) {
+              chainBlockingOp.set(chainKey, op.id);
+            }
+          }
         }
         results.push(result);
       }
