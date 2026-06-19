@@ -371,7 +371,8 @@
       "address": "",
       "note": "",
       "createdAt": "2026-06-19T02:43:33.152Z",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "masterId": "CM-1781845251947"
     },
     {
       "id": "C-1781837013152-h8xw",
@@ -381,7 +382,8 @@
       "address": "",
       "note": "",
       "createdAt": "2026-06-19T02:43:33.152Z",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "masterId": "CM-1781845251947"
     },
     {
       "id": "C-1781837013152-zv9w",
@@ -391,7 +393,8 @@
       "address": "",
       "note": "",
       "createdAt": "2026-06-19T02:43:33.152Z",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "masterId": null
     },
     {
       "id": "C-1781837013152-n5l1",
@@ -401,7 +404,8 @@
       "address": "",
       "note": "",
       "createdAt": "2026-06-19T02:43:33.152Z",
-      "branchId": "BR-DEFAULT"
+      "branchId": "BR-DEFAULT",
+      "masterId": null
     }
   ],
   "_customerMigrated": true,
@@ -461,5 +465,20 @@
     }
   ],
   "_branchMigrated": true,
-  "_worksEnhancedMigrated": true
+  "_worksEnhancedMigrated": true,
+  "customerMasters": [
+    {
+      "id": "CM-1781845251947",
+      "name": "沈钧（合并）",
+      "phone": "",
+      "wechat": "",
+      "address": "",
+      "note": "",
+      "preferredPaper": "",
+      "preferredMounting": "",
+      "createdAt": "2026-06-19T05:00:51.947Z",
+      "updatedAt": "2026-06-19T05:00:51.947Z"
+    }
+  ],
+  "_customerMasterMigrated": true
 }

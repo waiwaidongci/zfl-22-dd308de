@@ -702,6 +702,22 @@ async function migrateLegacyData(db) {
     db._worksEnhancedMigrated = true;
     changed = true;
   }
+  if (!db.customerMasters) {
+    db.customerMasters = [];
+    changed = true;
+  }
+  if (!db._customerMasterMigrated) {
+    if (Array.isArray(db.customers)) {
+      for (const customer of db.customers) {
+        if (customer.masterId === undefined) {
+          customer.masterId = null;
+          changed = true;
+        }
+      }
+    }
+    db._customerMasterMigrated = true;
+    changed = true;
+  }
   if (changed) {
     await saveDb(db);
   }
@@ -783,6 +799,122 @@ function enrichCustomer(customer, orders, works) {
     lastInscription,
     autoPreferredPaper,
     autoPreferredMounting
+  };
+}
+
+function stringSimilarity(s1, s2) {
+  if (!s1 || !s2) return 0;
+  const a = s1.trim().toLowerCase();
+  const b = s2.trim().toLowerCase();
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.8;
+  let matches = 0;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  for (const ch of setA) {
+    if (setB.has(ch)) matches++;
+  }
+  return matches / Math.max(setA.size, setB.size);
+}
+
+function calculateCustomerSimilarity(c1, c2) {
+  let score = 0;
+  let reasons = [];
+  const nameSim = stringSimilarity(c1.name, c2.name);
+  if (nameSim >= 0.6) {
+    score += nameSim * 0.4;
+    reasons.push("姓名相似");
+  }
+  if (c1.phone && c2.phone) {
+    const phoneSim = stringSimilarity(c1.phone.replace(/\D/g, ""), c2.phone.replace(/\D/g, ""));
+    if (phoneSim >= 0.8) {
+      score += phoneSim * 0.35;
+      reasons.push("电话相似");
+    }
+  }
+  if (c1.wechat && c2.wechat) {
+    const wechatSim = stringSimilarity(c1.wechat, c2.wechat);
+    if (wechatSim >= 0.7) {
+      score += wechatSim * 0.25;
+      reasons.push("微信相似");
+    }
+  }
+  return { score, reasons };
+}
+
+function findSimilarCustomers(customers, threshold = 0.5) {
+  const groups = [];
+  const visited = new Set();
+  for (let i = 0; i < customers.length; i++) {
+    if (visited.has(customers[i].id)) continue;
+    const group = { center: customers[i], members: [customers[i]], matches: [] };
+    visited.add(customers[i].id);
+    for (let j = i + 1; j < customers.length; j++) {
+      if (visited.has(customers[j].id)) continue;
+      const { score, reasons } = calculateCustomerSimilarity(customers[i], customers[j]);
+      if (score >= threshold) {
+        group.members.push(customers[j]);
+        group.matches.push({ customer: customers[j], score, reasons });
+        visited.add(customers[j].id);
+      }
+    }
+    if (group.members.length > 1) {
+      groups.push(group);
+    }
+  }
+  groups.sort((a, b) => b.members.length - a.members.length);
+  return groups;
+}
+
+function enrichMasterCustomer(master, customers, orders, works, branches) {
+  const masterCustomers = customers.filter(c => c.masterId === master.id);
+  const allOrders = orders.filter(o => masterCustomers.some(mc => mc.id === o.customerId));
+  const allWorks = works.filter(w => masterCustomers.some(mc => mc.id === w.customerId));
+  const totalSpent = allOrders.reduce((s, o) => {
+    const paid = (o.payments || []).reduce((a, p) => a + p.amount, 0);
+    if (o.paid && paid === 0) return s + (o.price || 0);
+    return s + paid;
+  }, 0);
+  const pendingOrders = allOrders.filter(o => o.status !== "已完成").length;
+  const branchIds = [...new Set(masterCustomers.map(c => c.branchId || DEFAULT_BRANCH_ID))];
+  const branchInfo = branchIds.map(bid => {
+    const branch = branches.find(b => b.id === bid);
+    const branchCustomers = masterCustomers.filter(c => (c.branchId || DEFAULT_BRANCH_ID) === bid);
+    const branchOrders = allOrders.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === bid);
+    const branchWorks = allWorks.filter(w => (w.branchId || DEFAULT_BRANCH_ID) === bid);
+    const branchSpent = branchOrders.reduce((s, o) => {
+      const paid = (o.payments || []).reduce((a, p) => a + p.amount, 0);
+      if (o.paid && paid === 0) return s + (o.price || 0);
+      return s + paid;
+    }, 0);
+    return {
+      branchId: bid,
+      branchName: branch?.name || "未知分店",
+      customerCount: branchCustomers.length,
+      orderCount: branchOrders.length,
+      workCount: branchWorks.length,
+      totalSpent: branchSpent
+    };
+  });
+  const paperCount = {};
+  const mountingCount = {};
+  [...allOrders, ...allWorks].forEach(item => {
+    if (item.paper) paperCount[item.paper] = (paperCount[item.paper] || 0) + 1;
+    if (item.mounting) mountingCount[item.mounting] = (mountingCount[item.mounting] || 0) + 1;
+  });
+  const preferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || master.preferredPaper || "";
+  const preferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || master.preferredMounting || "";
+  return {
+    ...master,
+    customerCount: masterCustomers.length,
+    orderCount: allOrders.length,
+    workCount: allWorks.length,
+    pendingOrders,
+    totalSpent,
+    preferredPaper,
+    preferredMounting,
+    branchInfo,
+    customerIds: masterCustomers.map(c => c.id)
   };
 }
 
@@ -920,6 +1052,40 @@ function page() {
     .customer-detail-content { display:none; }
     .customer-detail-content.active { display:block; }
     .customer-note { margin-top:10px; padding:10px; background:var(--bg); border-radius:6px; font-size:13px; color:var(--ink); }
+    .customer-master-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; background:#e6f2f0; color:#246b68; margin-left:6px; }
+    .similar-group { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:14px; }
+    .similar-group-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .similar-group-title { font-size:15px; font-weight:700; }
+    .similar-group-meta { font-size:12px; color:var(--muted); }
+    .similar-customers-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px; }
+    .similar-customer-item { border:1px solid var(--line); border-radius:6px; padding:10px; background:var(--bg); cursor:pointer; transition:all 0.15s; }
+    .similar-customer-item:hover { border-color:var(--accent); }
+    .similar-customer-item.selected { border-color:var(--accent); background:#e6f2f0; }
+    .similar-customer-item .name { font-weight:600; font-size:14px; }
+    .similar-customer-item .branch { font-size:11px; color:var(--muted); margin-bottom:4px; }
+    .similar-customer-item .contact { font-size:12px; color:var(--muted); }
+    .similar-customer-item .reasons { margin-top:6px; display:flex; gap:4px; flex-wrap:wrap; }
+    .similar-customer-item .reason-tag { font-size:10px; padding:1px 6px; background:#fde8d8; color:#a65b2a; border-radius:999px; }
+    .merge-preview-stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:14px; }
+    .merge-preview-stats .stat { background:var(--bg); padding:10px; border-radius:6px; text-align:center; }
+    .merge-preview-stats .stat strong { display:block; font-size:20px; color:var(--ink); }
+    .merge-preview-stats .stat span { font-size:12px; color:var(--muted); }
+    .master-summary { background:linear-gradient(135deg, #e6f2f0 0%, #dff0ed 100%); border:1px solid #bcd8d4; border-radius:8px; padding:14px; margin-bottom:14px; }
+    .master-summary h4 { margin:0 0 8px; font-size:14px; color:#246b68; }
+    .master-summary .summary-row { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; }
+    .master-summary .summary-label { color:var(--muted); }
+    .master-summary .summary-value { font-weight:600; }
+    .branch-info-card { background:var(--bg); border-radius:6px; padding:12px; margin-bottom:10px; }
+    .branch-info-card h5 { margin:0 0 8px; font-size:13px; color:var(--accent); }
+    .branch-info-card .branch-stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; font-size:12px; text-align:center; }
+    .branch-info-card .branch-stats strong { display:block; font-size:16px; color:var(--ink); }
+    .customer-masters-toolbar { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+    .customer-masters-toolbar .search-box { flex:1; min-width:200px; }
+    .hq-tabs { display:flex; gap:0; margin-bottom:14px; border-bottom:2px solid var(--line); }
+    .hq-tab { padding:8px 16px; cursor:pointer; color:var(--muted); font-weight:600; border-bottom:2px solid transparent; margin-bottom:-2px; font-size:14px; }
+    .hq-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .hq-tab-content { display:none; }
+    .hq-tab-content.active { display:block; }
     .client-select-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; }
     .client-select-row button { padding:9px 14px; white-space:nowrap; }
     .toggle-link { color:var(--accent); cursor:pointer; font-size:13px; text-decoration:underline; display:inline-block; margin-top:4px; }
@@ -1460,22 +1626,59 @@ function page() {
     </div>
 
     <div class="tab-content" id="tab-customers">
-      <div id="customers-list-view">
-        <div class="customer-stats" id="customer-stats"></div>
-        <div class="section-title-row">
-          <h2 style="margin:0;">客户列表</h2>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <div class="search-box" style="width:260px;"><input id="customer-search" placeholder="搜索姓名/电话/微信"></div>
-            <button id="add-customer-btn">+ 新增客户</button>
+      <div id="hq-customer-view" style="display:none;">
+        <div class="hq-tabs">
+          <div class="hq-tab active" data-hq-tab="similar">发现重复客户</div>
+          <div class="hq-tab" data-hq-tab="masters">合并客户档案</div>
+        </div>
+        <div class="hq-tab-content active" id="hq-tab-similar">
+          <div class="section-title-row">
+            <h2 style="margin:0;">相似客户检测</h2>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <label style="font-size:13px;color:var(--muted);">相似度阈值</label>
+              <select id="similar-threshold" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;">
+                <option value="0.3">低 (0.3)</option>
+                <option value="0.5" selected>中 (0.5)</option>
+                <option value="0.7">高 (0.7)</option>
+              </select>
+              <button id="refresh-similar-btn">🔄 重新检测</button>
+            </div>
           </div>
+          <div id="similar-groups"></div>
         </div>
-        <div class="grid" id="customers"></div>
+        <div class="hq-tab-content" id="hq-tab-masters">
+          <div class="customer-masters-toolbar">
+            <h2 style="margin:0;">合并客户档案</h2>
+            <div class="spacer" style="flex:1;"></div>
+            <div class="search-box" style="width:260px;"><input id="master-search" placeholder="搜索主客户"></div>
+          </div>
+          <div id="masters-grid" class="grid"></div>
+        </div>
+        <div id="master-detail-view" style="display:none;">
+          <div style="margin-bottom:16px;">
+            <button class="back-btn" id="back-to-masters">← 返回主客户列表</button>
+          </div>
+          <div id="master-detail-container"></div>
+        </div>
       </div>
-      <div id="customer-detail-view" style="display:none;">
-        <div style="margin-bottom:16px;">
-          <button class="back-btn" id="back-to-customers">← 返回客户列表</button>
+      <div id="branch-customer-view">
+        <div id="customers-list-view">
+          <div class="customer-stats" id="customer-stats"></div>
+          <div class="section-title-row">
+            <h2 style="margin:0;">客户列表</h2>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <div class="search-box" style="width:260px;"><input id="customer-search" placeholder="搜索姓名/电话/微信"></div>
+              <button id="add-customer-btn">+ 新增客户</button>
+            </div>
+          </div>
+          <div class="grid" id="customers"></div>
         </div>
-        <div id="customer-detail-container"></div>
+        <div id="customer-detail-view" style="display:none;">
+          <div style="margin-bottom:16px;">
+            <button class="back-btn" id="back-to-customers">← 返回客户列表</button>
+          </div>
+          <div id="customer-detail-container"></div>
+        </div>
       </div>
     </div>
 
@@ -2978,8 +3181,22 @@ function page() {
     }
 
     function renderCustomers() {
+      const hqView = document.querySelector("#hq-customer-view");
+      const branchView = document.querySelector("#branch-customer-view");
+      if (currentBranchId === "__all__") {
+        hqView.style.display = "block";
+        branchView.style.display = "none";
+        renderHqCustomers();
+      } else {
+        hqView.style.display = "none";
+        branchView.style.display = "block";
+        renderBranchCustomers();
+      }
+    }
+
+    function renderBranchCustomers() {
       const addBtn = document.querySelector("#add-customer-btn");
-      if (addBtn) addBtn.style.display = currentBranchId === "__all__" ? "none" : "";
+      if (addBtn) addBtn.style.display = "";
       const listView = document.querySelector("#customers-list-view");
       const detailView = document.querySelector("#customer-detail-view");
       if (detailView.style.display === "block") {
@@ -3002,7 +3219,6 @@ function page() {
       const list = keyword
         ? customers.filter(c => c.name.includes(keyword) || (c.phone || "").includes(keyword) || (c.wechat || "").includes(keyword))
         : customers;
-      const isAllView = currentBranchId === "__all__";
       if (list.length === 0) {
         gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无客户数据</div>';
       } else {
@@ -3015,11 +3231,9 @@ function page() {
           if (c.preferredPaper) prefs.push('<span class="pill">📄 '+c.preferredPaper+'</span>');
           if (c.preferredMounting) prefs.push('<span class="pill">🖼️ '+c.preferredMounting+'</span>');
           if (c.lastInscription) prefs.push('<span class="pill">✍️ '+c.lastInscription+'</span>');
-          const actionsHtml = isAllView
-            ? '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button></div>'
-            : '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button><button class="secondary" data-edit-customer="'+c.id+'">编辑</button></div>';
+          const masterBadge = c.masterId ? '<span class="customer-master-badge">已合并</span>' : '';
           return '<article class="card customer-card" data-customer-id="'+c.id+'">'
-            + '<div class="row"><h3 class="customer-name">'+c.name+'</h3><span class="customer-id">'+c.id+'</span></div>'
+            + '<div class="row"><h3 class="customer-name">'+c.name+masterBadge+'</h3><span class="customer-id">'+c.id+'</span></div>'
             + '<div class="customer-contact">'+(contact.length ? contact.join('<br>') : '<span style="color:var(--muted);">未填写联系方式</span>')+'</div>'
             + (prefs.length ? '<div class="customer-preferences">'+prefs.join('')+'</div>' : '')
             + '<div class="customer-stats-mini">'
@@ -3027,7 +3241,7 @@ function page() {
             + '<div><strong>'+(c.workCount||0)+'</strong>作品</div>'
             + '<div><strong>¥'+(c.totalSpent||0)+'</strong>累计</div>'
             + '</div>'
-            + actionsHtml
+            + '<div class="row" style="margin-top:10px;"><button data-view-customer="'+c.id+'">查看详情</button><button class="secondary" data-edit-customer="'+c.id+'">编辑</button></div>'
             + '</article>';
         }).join("");
       }
@@ -3058,9 +3272,30 @@ function page() {
         if (customer.phone) contact.push({label:"电话", value:customer.phone});
         if (customer.wechat) contact.push({label:"微信", value:customer.wechat});
         if (customer.address) contact.push({label:"地址", value:customer.address});
+        
+        let masterSummaryHtml = "";
+        if (customer.masterId && currentBranchId !== "__all__") {
+          try {
+            const master = await api("/api/customer-masters/" + customer.masterId);
+            if (master) {
+              masterSummaryHtml = '<div class="master-summary" style="margin-bottom:14px;">'
+                + '<h4>🏢 统一客户档案（总部已确认）</h4>'
+                + '<div class="summary-row"><span class="summary-label">主档案姓名</span><span class="summary-value">' + master.name + '</span></div>'
+                + '<div class="summary-row"><span class="summary-label">全分店委托</span><span class="summary-value">' + master.orderCount + ' 单</span></div>'
+                + '<div class="summary-row"><span class="summary-label">全分店作品</span><span class="summary-value">' + master.workCount + ' 件</span></div>'
+                + '<div class="summary-row"><span class="summary-label">累计消费（全分店）</span><span class="summary-value money">¥' + master.totalSpent + '</span></div>'
+                + '<div class="summary-row"><span class="summary-label">涉及分店数</span><span class="summary-value">' + (master.branchInfo?.length || 1) + ' 家</span></div>'
+                + (master.preferredPaper ? '<div class="summary-row"><span class="summary-label">📄 常用纸张（汇总）</span><span class="summary-value">' + master.preferredPaper + '</span></div>' : '')
+                + (master.preferredMounting ? '<div class="summary-row"><span class="summary-label">🖼️ 常用装裱（汇总）</span><span class="summary-value">' + master.preferredMounting + '</span></div>' : '')
+                + '</div>';
+            }
+          } catch (e) {}
+        }
+        
         container.innerHTML = '<div class="customer-detail-layout">'
           + '<div class="panel customer-info-panel">'
-          + '<div class="row" style="margin-bottom:8px;"><h2 style="margin:0;">'+customer.name+'</h2><span class="customer-id">'+customer.id+'</span></div>'
+          + masterSummaryHtml
+          + '<div class="row" style="margin-bottom:8px;"><h2 style="margin:0;">'+customer.name+(customer.masterId ? '<span class="customer-master-badge">已合并</span>' : '')+'</h2><span class="customer-id">'+customer.id+'</span></div>'
           + '<div class="meta" style="margin-bottom:12px;">建档时间：'+fmtDate(customer.createdAt)+'</div>'
           + contact.map(r => '<div class="info-row"><span class="info-label">'+r.label+'</span><span class="info-value">'+r.value+'</span></div>').join("")
           + (contact.length === 0 ? '<div class="info-row"><span class="info-label">联系方式</span><span class="info-value" style="color:var(--muted);font-weight:400;">未填写</span></div>' : '')
@@ -3177,6 +3412,495 @@ function page() {
       } catch (e) {
         alert(e.message);
       }
+    }
+
+    let similarGroups = [];
+    let customerMasters = [];
+    let currentHqTab = "similar";
+    let currentViewingMasterId = null;
+    let masterDetailTab = "overview";
+    let masterSearchKeyword = "";
+    let selectedSimilarIds = [];
+
+    function renderHqCustomers() {
+      const masterDetailView = document.querySelector("#master-detail-view");
+      const hqTabs = document.querySelector(".hq-tabs");
+      if (masterDetailView.style.display === "block") {
+        hqTabs.style.display = "none";
+        renderMasterDetail();
+        return;
+      }
+      hqTabs.style.display = "flex";
+      if (currentHqTab === "similar") {
+        renderSimilarCustomers();
+      } else {
+        renderCustomerMasters();
+      }
+    }
+
+    async function loadSimilarCustomers() {
+      const threshold = document.querySelector("#similar-threshold")?.value || 0.5;
+      try {
+        similarGroups = await api("/api/customers/similar?threshold=" + threshold);
+        renderSimilarCustomers();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function renderSimilarCustomers() {
+      const container = document.querySelector("#similar-groups");
+      if (!container) return;
+      if (similarGroups.length === 0) {
+        container.innerHTML = '<div class="panel" style="text-align:center;padding:40px;color:var(--muted);">暂未发现相似客户，试试降低相似度阈值</div>';
+        return;
+      }
+      container.innerHTML = similarGroups.map((group, idx) => {
+        return '<div class="similar-group">'
+          + '<div class="similar-group-header">'
+          + '<div class="similar-group-title">第 ' + (idx + 1) + ' 组 · ' + group.memberCount + ' 位疑似重复客户</div>'
+          + '<div class="similar-group-meta">涉及 ' + group.branchCount + ' 家分店：' + group.branchNames.join('、') + '</div>'
+          + '</div>'
+          + '<div class="similar-customers-grid">'
+          + group.members.map(member => {
+              const isSelected = selectedSimilarIds.includes(member.id);
+              const branchName = (branches.find(b => b.id === (member.branchId || DEFAULT_BRANCH_ID)))?.name || '未知分店';
+              const reasonsHtml = (group.matches.find(m => m.customer.id === member.id)?.reasons || [])
+                .map(r => '<span class="reason-tag">' + r + '</span>').join('');
+              return '<div class="similar-customer-item ' + (isSelected ? 'selected' : '') + '" data-similar-id="' + member.id + '">'
+                + '<div class="row" style="margin-bottom:4px;">'
+                + '<span class="name">' + member.name + '</span>'
+                + '<span class="customer-id">' + member.id + '</span>'
+                + '</div>'
+                + '<div class="branch">🏢 ' + branchName + '</div>'
+                + '<div class="contact">'
+                + (member.phone ? '📞 ' + member.phone + '<br>' : '')
+                + (member.wechat ? '💬 ' + member.wechat : '')
+                + '</div>'
+                + '<div class="reasons">' + reasonsHtml + '</div>'
+                + '<div style="margin-top:6px;font-size:12px;color:var(--muted);">'
+                + member.orderCount + ' 单 · ¥' + member.totalSpent + ' 累计'
+                + '</div>'
+                + '</div>';
+            }).join("")
+          + '</div>'
+          + '<div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px;">'
+          + '<button class="secondary" data-select-all-group="' + idx + '">全选本组</button>'
+          + '<button data-merge-group="' + idx + '">合并选中客户</button>'
+          + '</div>'
+          + '</div>';
+      }).join("");
+
+      document.querySelectorAll(".similar-customer-item").forEach(item => {
+        item.onclick = () => {
+          const id = item.dataset.similarId;
+          if (selectedSimilarIds.includes(id)) {
+            selectedSimilarIds = selectedSimilarIds.filter(x => x !== id);
+          } else {
+            selectedSimilarIds.push(id);
+          }
+          renderSimilarCustomers();
+        };
+      });
+      document.querySelectorAll("[data-select-all-group]").forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.selectAllGroup);
+          const group = similarGroups[idx];
+          const allSelected = group.members.every(m => selectedSimilarIds.includes(m.id));
+          if (allSelected) {
+            selectedSimilarIds = selectedSimilarIds.filter(id => !group.members.some(m => m.id === id));
+          } else {
+            for (const m of group.members) {
+              if (!selectedSimilarIds.includes(m.id)) {
+                selectedSimilarIds.push(m.id);
+              }
+            }
+          }
+          renderSimilarCustomers();
+        };
+      });
+      document.querySelectorAll("[data-merge-group]").forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.mergeGroup);
+          const group = similarGroups[idx];
+          const selectedInGroup = group.members.filter(m => selectedSimilarIds.includes(m.id));
+          if (selectedInGroup.length < 2) {
+            alert("请至少选择2位客户进行合并");
+            return;
+          }
+          openMergePreview(selectedInGroup.map(m => m.id));
+        };
+      });
+    }
+
+    async function loadCustomerMasters() {
+      try {
+        const q = masterSearchKeyword ? "?q=" + encodeURIComponent(masterSearchKeyword) : "";
+        customerMasters = await api("/api/customer-masters" + q);
+        renderCustomerMasters();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function renderCustomerMasters() {
+      const gridEl = document.querySelector("#masters-grid");
+      if (!gridEl) return;
+      if (customerMasters.length === 0) {
+        gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);">暂无合并客户档案</div>';
+        return;
+      }
+      gridEl.innerHTML = customerMasters.map(m => {
+        const branchNames = m.branchInfo?.map(b => b.branchName).join('、') || '';
+        return '<article class="card customer-card" data-master-id="' + m.id + '">'
+          + '<div class="row"><h3 class="customer-name">' + m.name + '<span class="customer-master-badge">主档案</span></h3><span class="customer-id">' + m.id + '</span></div>'
+          + '<div class="customer-contact">'
+          + (m.phone ? '📞 ' + m.phone + '<br>' : '')
+          + (m.wechat ? '💬 ' + m.wechat : '')
+          + '</div>'
+          + '<div style="margin-top:6px;font-size:12px;color:var(--muted);">🏢 ' + branchNames + '</div>'
+          + '<div class="customer-stats-mini">'
+          + '<div><strong>' + (m.orderCount || 0) + '</strong>总委托</div>'
+          + '<div><strong>' + (m.workCount || 0) + '</strong>作品</div>'
+          + '<div><strong>¥' + (m.totalSpent || 0) + '</strong>累计</div>'
+          + '</div>'
+          + '<div class="row" style="margin-top:10px;">'
+          + '<button data-view-master="' + m.id + '">查看详情</button>'
+          + '</div>'
+          + '</article>';
+      }).join("");
+      document.querySelectorAll("[data-view-master]").forEach(btn => {
+        btn.onclick = () => openMasterDetail(btn.dataset.viewMaster);
+      });
+    }
+
+    function openMasterDetail(masterId) {
+      currentViewingMasterId = masterId;
+      masterDetailTab = "overview";
+      document.querySelector("#hq-tab-similar").classList.remove("active");
+      document.querySelector("#hq-tab-masters").classList.remove("active");
+      document.querySelector("#hq-tab-similar").style.display = "none";
+      document.querySelector("#hq-tab-masters").style.display = "none";
+      document.querySelector("#master-detail-view").style.display = "block";
+      renderMasterDetail();
+    }
+
+    async function renderMasterDetail() {
+      if (!currentViewingMasterId) return;
+      try {
+        const master = await api("/api/customer-masters/" + currentViewingMasterId);
+        const container = document.querySelector("#master-detail-container");
+        const isAllView = currentBranchId === "__all__";
+        const cOrders = master.orders || [];
+        const cWorks = master.works || [];
+        const cCustomers = master.customers || [];
+        const pending = cOrders.filter(o => o.status !== "已完成");
+        container.innerHTML = '<div class="customer-detail-layout">'
+          + '<div class="panel customer-info-panel">'
+          + '<div class="row" style="margin-bottom:8px;"><h2 style="margin:0;">' + master.name + '<span class="customer-master-badge">主档案</span></h2><span class="customer-id">' + master.id + '</span></div>'
+          + '<div class="meta" style="margin-bottom:12px;">建档时间：' + fmtDate(master.createdAt) + '</div>'
+          + '<div class="info-row"><span class="info-label">电话</span><span class="info-value">' + (master.phone || "—") + '</span></div>'
+          + '<div class="info-row"><span class="info-label">微信</span><span class="info-value">' + (master.wechat || "—") + '</span></div>'
+          + '<div class="info-row"><span class="info-label">地址</span><span class="info-value">' + (master.address || "—") + '</span></div>'
+          + '<div class="divider" style="margin:10px 0;"></div>'
+          + '<div class="info-row"><span class="info-label">累计委托</span><span class="info-value">' + (master.orderCount || 0) + ' 单</span></div>'
+          + '<div class="info-row"><span class="info-label">完成作品</span><span class="info-value">' + (master.workCount || 0) + ' 件</span></div>'
+          + '<div class="info-row"><span class="info-label">未完成订单</span><span class="info-value" style="color:' + (master.pendingOrders > 0 ? 'var(--warn)' : 'var(--ink)') + ';">' + (master.pendingOrders || 0) + ' 单</span></div>'
+          + '<div class="info-row"><span class="info-label">累计消费</span><span class="info-value money">¥' + (master.totalSpent || 0) + '</span></div>'
+          + '<div class="divider" style="margin:10px 0;"></div>'
+          + '<div class="customer-preferences-block" style="padding:12px;background:var(--bg);border-radius:6px;margin-bottom:8px;">'
+          + '<div class="row" style="margin-bottom:8px;"><h4 style="margin:0;font-size:14px;">🎨 客户偏好（全分店汇总）</h4>'
+          + (isAllView ? '<button class="secondary" style="padding:4px 10px;font-size:12px;" id="master-edit-prefs-btn">编辑</button>' : '')
+          + '</div>'
+          + '<div class="info-row"><span class="info-label">📄 常用纸张</span><span class="info-value">' + (master.preferredPaper || "—") + '</span></div>'
+          + '<div class="info-row"><span class="info-label">🖼️ 常用装裱</span><span class="info-value">' + (master.preferredMounting || "—") + '</span></div>'
+          + '</div>'
+          + (master.note ? '<div class="customer-note"><strong style="font-size:12px;color:var(--muted);">备注</strong><br>' + master.note + '</div>' : '')
+          + (isAllView ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">'
+          + '<button data-edit-master-btn="' + master.id + '">编辑主档案</button>'
+          + '<button class="secondary" data-delete-master-btn="' + master.id + '">解除合并</button>'
+          + '</div>' : '')
+          + '</div>'
+          + '<div>'
+          + '<div class="customer-detail-tabs">'
+          + '<div class="customer-detail-tab ' + (masterDetailTab === 'overview' ? 'active' : '') + '" data-mdt-tab="overview">概览</div>'
+          + '<div class="customer-detail-tab ' + (masterDetailTab === 'allOrders' ? 'active' : '') + '" data-mdt-tab="allOrders">全部订单 (' + cOrders.length + ')</div>'
+          + '<div class="customer-detail-tab ' + (masterDetailTab === 'works' ? 'active' : '') + '" data-mdt-tab="works">完成作品 (' + cWorks.length + ')</div>'
+          + '<div class="customer-detail-tab ' + (masterDetailTab === 'branches' ? 'active' : '') + '" data-mdt-tab="branches">分店档案 (' + cCustomers.length + ')</div>'
+          + '</div>'
+          + '<div class="customer-detail-content ' + (masterDetailTab === 'overview' ? 'active' : '') + '" id="mdt-tab-overview">'
+          + renderMasterOverview(master)
+          + '</div>'
+          + '<div class="customer-detail-content ' + (masterDetailTab === 'allOrders' ? 'active' : '') + '" id="mdt-tab-allOrders">'
+          + (cOrders.length === 0
+              ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无订单记录</div>'
+              : '<div class="grid">' + cOrders.map(o => {
+                  const pi = getPaidInfo(o);
+                  const branchName = (branches.find(b => b.id === (o.branchId || DEFAULT_BRANCH_ID)))?.name || '未知分店';
+                  return '<article class="card"><div class="row"><h3>' + o.id + '</h3><span class="pill">' + o.status + (o.archived ? ' · 已归档' : '') + '</span></div>'
+                    + '<div class="meta">' + o.fishSpecies + ' · ' + o.size + ' · 🏢 ' + branchName + '</div>'
+                    + '<div class="divider"></div>'
+                    + '<div class="detail"><div><span class="label">纸张</span>' + o.paper + '</div><div><span class="label">装裱</span>' + o.mounting + '</div>'
+                    + '<div><span class="label">题字</span>' + (o.inscription || "无") + '</div><div><span class="label">交付</span>' + fmtDate(o.dueDate) + '</div></div>'
+                    + '<div class="row" style="margin-top:8px;"><div class="money">¥' + (o.price || 0) + ' <span class="paid-status ' + pi.cls + '">' + pi.text + '</span></div><div class="meta">负责人：' + o.owner + '</div></div>'
+                    + '</article>';
+                }).join("") + '</div>')
+          + '</div>'
+          + '<div class="customer-detail-content ' + (masterDetailTab === 'works' ? 'active' : '') + '" id="mdt-tab-works">'
+          + (cWorks.length === 0
+              ? '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无作品档案</div>'
+              : '<div class="grid">' + cWorks.map(w => {
+                  const dl = getDisplayLevelInfo(w.displayLevel);
+                  const ai = getAuthInfo(w.clientAuthorization);
+                  const branchName = (branches.find(b => b.id === (w.branchId || DEFAULT_BRANCH_ID)))?.name || '未知分店';
+                  return '<article class="card">'
+                    + '<div class="row"><h3>' + w.fishSpecies + '</h3><span class="pill">' + w.mounting + '</span></div>'
+                    + '<div class="work-card-badges">'
+                    + '<span class="display-badge ' + w.displayLevel + '">⭐ ' + dl.label + '</span>'
+                    + '<span class="auth-badge ' + w.clientAuthorization + '">' + (w.clientAuthorization === 'authorized' ? '✓ ' : '🔒 ') + ai.label + '</span>'
+                    + '</div>'
+                    + '<div class="meta">' + w.id + ' · ' + w.size + ' · 🏢 ' + branchName + '</div>'
+                    + '<div class="divider"></div>'
+                    + '<div class="detail"><div><span class="label">纸张</span>' + w.paper + '</div><div><span class="label">墨色</span>' + w.inkPlan + '</div>'
+                    + '<div><span class="label">题字</span>' + (w.inscription || "无") + '</div><div><span class="label">完成</span>' + fmtDate(w.completedAt) + '</div></div></article>';
+                }).join("") + '</div>')
+          + '</div>'
+          + '<div class="customer-detail-content ' + (masterDetailTab === 'branches' ? 'active' : '') + '" id="mdt-tab-branches">'
+          + renderMasterBranchCustomers(cCustomers, isAllView)
+          + '</div>'
+          + '</div>'
+          + '</div>';
+        document.querySelectorAll("[data-mdt-tab]").forEach(t => {
+          t.onclick = () => {
+            masterDetailTab = t.dataset.mdtTab;
+            renderMasterDetail();
+          };
+        });
+        if (isAllView) {
+          document.querySelector("[data-edit-master-btn]")?.addEventListener("click", () => openMasterModal(master.id));
+          document.querySelector("#master-edit-prefs-btn")?.addEventListener("click", () => openMasterModal(master.id));
+          const delBtn = document.querySelector("[data-delete-master-btn]");
+          if (delBtn) delBtn.onclick = async () => {
+            if (!confirm("确认解除此主档案？解除后各分店客户将恢复独立，历史数据不会丢失。")) return;
+            try {
+              await api("/api/customer-masters/" + master.id, { method: "DELETE" });
+              alert("已解除合并");
+              backToMastersList();
+              await loadCustomerMasters();
+            } catch (e) { alert(e.message); }
+          };
+        }
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function renderMasterOverview(master) {
+      const branchInfo = master.branchInfo || [];
+      let html = '<div class="master-summary">'
+        + '<h4>📊 全分店汇总</h4>'
+        + '<div class="summary-row"><span class="summary-label">涉及分店数</span><span class="summary-value">' + branchInfo.length + ' 家</span></div>'
+        + '<div class="summary-row"><span class="summary-label">分店档案数</span><span class="summary-value">' + master.customerCount + ' 个</span></div>'
+        + '<div class="summary-row"><span class="summary-label">总委托数</span><span class="summary-value">' + master.orderCount + ' 单</span></div>'
+        + '<div class="summary-row"><span class="summary-label">总作品数</span><span class="summary-value">' + master.workCount + ' 件</span></div>'
+        + '<div class="summary-row"><span class="summary-label">累计消费</span><span class="summary-value money">¥' + master.totalSpent + '</span></div>'
+        + '</div>';
+      html += '<h3 style="margin:0 0 10px;font-size:15px;">各分店数据</h3>';
+      html += branchInfo.map(bi => {
+        return '<div class="branch-info-card">'
+          + '<h5>🏢 ' + bi.branchName + '</h5>'
+          + '<div class="branch-stats">'
+          + '<div><strong>' + bi.customerCount + '</strong><span style="font-size:12px;color:var(--muted);">档案数</span></div>'
+          + '<div><strong>' + bi.orderCount + '</strong><span style="font-size:12px;color:var(--muted);">订单数</span></div>'
+          + '<div><strong>' + bi.workCount + '</strong><span style="font-size:12px;color:var(--muted);">作品数</span></div>'
+          + '</div>'
+          + '<div style="text-align:right;margin-top:8px;font-size:13px;"><span style="color:var(--muted);">累计消费：</span><strong>¥' + bi.totalSpent + '</strong></div>'
+          + '</div>';
+      }).join("");
+      return html;
+    }
+
+    function renderMasterBranchCustomers(customers, isAllView) {
+      if (customers.length === 0) {
+        return '<div class="panel" style="text-align:center;color:var(--muted);padding:30px;">暂无分店客户档案</div>';
+      }
+      return '<div class="grid">' + customers.map(c => {
+        const branchName = (branches.find(b => b.id === (c.branchId || DEFAULT_BRANCH_ID)))?.name || '未知分店';
+        return '<article class="card">'
+          + '<div class="row"><h3 style="margin:0;font-size:15px;">' + c.name + '</h3><span class="customer-id">' + c.id + '</span></div>'
+          + '<div class="meta" style="margin:4px 0;">🏢 ' + branchName + '</div>'
+          + '<div class="customer-contact" style="margin-top:4px;font-size:13px;color:var(--muted);">'
+          + (c.phone ? '📞 ' + c.phone + '<br>' : '')
+          + (c.wechat ? '💬 ' + c.wechat : '')
+          + '</div>'
+          + (isAllView ? '<div class="row" style="margin-top:10px;">'
+          + '<button class="secondary" data-unlink-customer="' + c.id + '">解除关联</button>'
+          + '</div>' : '')
+          + '</article>';
+      }).join("") + '</div>';
+    }
+
+    function backToMastersList() {
+      currentViewingMasterId = null;
+      document.querySelector("#master-detail-view").style.display = "none";
+      document.querySelector("#hq-tab-similar").style.display = "";
+      document.querySelector("#hq-tab-masters").style.display = "";
+      if (currentHqTab === "similar") {
+        document.querySelector("#hq-tab-similar").classList.add("active");
+        document.querySelector("#hq-tab-masters").classList.remove("active");
+      } else {
+        document.querySelector("#hq-tab-similar").classList.remove("active");
+        document.querySelector("#hq-tab-masters").classList.add("active");
+      }
+      renderHqCustomers();
+    }
+
+    async function openMergePreview(customerIds) {
+      try {
+        const preview = await api("/api/customers/merge-preview?ids=" + customerIds.join(","));
+        const overlay = document.querySelector("#modal-overlay");
+        const title = document.querySelector("#modal-title");
+        const sub = document.querySelector("#modal-sub");
+        const detail = document.querySelector("#modal-detail");
+        title.textContent = "合并客户预览";
+        sub.textContent = "确认合并以下 " + preview.customers.length + " 位客户？";
+        detail.innerHTML = '<div class="merge-preview-stats">'
+          + '<div class="stat"><strong>' + preview.totalOrders + '</strong><span>总订单</span></div>'
+          + '<div class="stat"><strong>' + preview.totalWorks + '</strong><span>总作品</span></div>'
+          + '<div class="stat"><strong>' + preview.pendingOrders + '</strong><span>进行中</span></div>'
+          + '<div class="stat"><strong>¥' + preview.totalSpent + '</strong><span>累计消费</span></div>'
+          + '</div>'
+          + '<h4 style="margin:10px 0 8px;font-size:14px;">涉及分店</h4>'
+          + preview.branchInfo.map(bi => {
+              return '<div class="branch-info-card" style="margin-bottom:8px;">'
+                + '<h5>🏢 ' + bi.branchName + ' (' + bi.customerCount + ' 位)</h5>'
+                + '<div style="font-size:12px;color:var(--muted);">'
+                + bi.customers.map(c => c.name + (c.phone ? ' (' + c.phone + ')' : '')).join('、')
+                + '</div>'
+                + '</div>';
+            }).join("")
+          + '<div class="divider" style="margin:12px 0;"></div>'
+          + '<h4 style="margin:0 0 8px;font-size:14px;">合并后主档案信息</h4>'
+          + '<div style="display:grid;gap:8px;">'
+          + '<label>客户姓名<input id="merge-name" value="' + preview.suggested.name + '" style="width:100%;"></label>'
+          + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+          + '<label>电话<input id="merge-phone" value="' + preview.suggested.phone + '"></label>'
+          + '<label>微信<input id="merge-wechat" value="' + preview.suggested.wechat + '"></label>'
+          + '</div>'
+          + '<label>地址<input id="merge-address" value="' + preview.suggested.address + '"></label>'
+          + '<label>备注<textarea id="merge-note" rows="2" style="width:100%;"></textarea></label>'
+          + '</div>'
+          + '<div id="merge-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>';
+        overlay.classList.add("active");
+        const closeBtn = document.querySelector("#modal-close");
+        closeBtn.textContent = "取消";
+        closeBtn.onclick = () => {
+          overlay.classList.remove("active");
+          closeBtn.textContent = "关闭";
+        };
+        const originalOnclick = closeBtn.onclick;
+        const confirmBtn = document.createElement("button");
+        confirmBtn.textContent = "确认合并";
+        confirmBtn.style.cssText = "margin-top:12px;width:100%;";
+        confirmBtn.onclick = async () => {
+          const name = document.querySelector("#merge-name").value.trim();
+          const phone = document.querySelector("#merge-phone").value.trim();
+          const wechat = document.querySelector("#merge-wechat").value.trim();
+          const address = document.querySelector("#merge-address").value.trim();
+          const note = document.querySelector("#merge-note").value.trim();
+          const errorEl = document.querySelector("#merge-error");
+          if (!name) {
+            errorEl.textContent = "客户姓名不能为空";
+            errorEl.style.display = "block";
+            return;
+          }
+          try {
+            const result = await api("/api/customers/merge", {
+              method: "POST",
+              body: JSON.stringify({ customerIds, name, phone, wechat, address, note })
+            });
+            alert("合并成功！");
+            overlay.classList.remove("active");
+            closeBtn.textContent = "关闭";
+            selectedSimilarIds = [];
+            await loadSimilarCustomers();
+            await loadCustomerMasters();
+          } catch (e) {
+            errorEl.textContent = e.message;
+            errorEl.style.display = "block";
+          }
+        };
+        detail.appendChild(confirmBtn);
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function openMasterModal(masterId) {
+      const master = customerMasters.find(m => m.id === masterId);
+      if (!master) return;
+      const overlay = document.querySelector("#modal-overlay");
+      const title = document.querySelector("#modal-title");
+      const sub = document.querySelector("#modal-sub");
+      const detail = document.querySelector("#modal-detail");
+      title.textContent = "编辑主客户档案";
+      sub.textContent = master.id;
+      detail.innerHTML = '<div style="display:grid;gap:8px;">'
+        + '<label>客户姓名<input id="mm-name" value="' + (master.name || '') + '" style="width:100%;"></label>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+        + '<label>电话<input id="mm-phone" value="' + (master.phone || '') + '"></label>'
+        + '<label>微信<input id="mm-wechat" value="' + (master.wechat || '') + '"></label>'
+        + '</div>'
+        + '<label>地址<input id="mm-address" value="' + (master.address || '') + '"></label>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+        + '<label>常用纸张<input id="mm-paper" value="' + (master.preferredPaper || '') + '"></label>'
+        + '<label>常用装裱<input id="mm-mounting" value="' + (master.preferredMounting || '') + '"></label>'
+        + '</div>'
+        + '<label>备注<textarea id="mm-note" rows="3" style="width:100%;">' + (master.note || '') + '</textarea></label>'
+        + '</div>'
+        + '<div id="mm-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>';
+      overlay.classList.add("active");
+      const closeBtn = document.querySelector("#modal-close");
+      closeBtn.textContent = "取消";
+      closeBtn.onclick = () => {
+        overlay.classList.remove("active");
+        closeBtn.textContent = "关闭";
+      };
+      const confirmBtn = document.createElement("button");
+      confirmBtn.textContent = "保存";
+      confirmBtn.style.cssText = "margin-top:12px;width:100%;";
+      confirmBtn.onclick = async () => {
+        const name = document.querySelector("#mm-name").value.trim();
+        const phone = document.querySelector("#mm-phone").value.trim();
+        const wechat = document.querySelector("#mm-wechat").value.trim();
+        const address = document.querySelector("#mm-address").value.trim();
+        const preferredPaper = document.querySelector("#mm-paper").value.trim();
+        const preferredMounting = document.querySelector("#mm-mounting").value.trim();
+        const note = document.querySelector("#mm-note").value.trim();
+        const errorEl = document.querySelector("#mm-error");
+        if (!name) {
+          errorEl.textContent = "客户姓名不能为空";
+          errorEl.style.display = "block";
+          return;
+        }
+        try {
+          await api("/api/customer-masters/" + masterId, {
+            method: "PUT",
+            body: JSON.stringify({ name, phone, wechat, address, preferredPaper, preferredMounting, note })
+          });
+          alert("保存成功");
+          overlay.classList.remove("active");
+          closeBtn.textContent = "关闭";
+          await loadCustomerMasters();
+          if (currentViewingMasterId === masterId) {
+            renderMasterDetail();
+          }
+        } catch (e) {
+          errorEl.textContent = e.message;
+          errorEl.style.display = "block";
+        }
+      };
+      detail.appendChild(confirmBtn);
     }
 
     function openCustomerModal(customerId) {
@@ -4964,7 +5688,7 @@ function page() {
     function updateTabAvailability() {
       const isAllView = currentBranchId === "__all__";
       document.querySelectorAll(".tab").forEach(t => {
-        const disabled = isAllView && t.dataset.tab !== "dashboard" && t.dataset.tab !== "sync";
+        const disabled = isAllView && t.dataset.tab !== "dashboard" && t.dataset.tab !== "sync" && t.dataset.tab !== "customers" && t.dataset.tab !== "branches";
         t.classList.toggle("disabled", disabled);
         t.setAttribute("aria-disabled", disabled ? "true" : "false");
       });
@@ -5433,6 +6157,10 @@ function page() {
         materials = [];
         materialTransactions = [];
         changeRequests = [];
+        if (currentTab === "customers") {
+          await loadSimilarCustomers();
+          await loadCustomerMasters();
+        }
         await loadDashboard();
         updateNetworkUI();
         return;
@@ -5499,9 +6227,13 @@ function page() {
     }
 
     document.querySelectorAll(".tab").forEach(tab => tab.onclick = async () => {
-      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard" && tab.dataset.tab !== "sync") return;
+      if (currentBranchId === "__all__" && tab.dataset.tab !== "dashboard" && tab.dataset.tab !== "sync" && tab.dataset.tab !== "customers" && tab.dataset.tab !== "branches") return;
       activateTab(tab.dataset.tab);
-      if (currentTab === "calendar") {
+      if (currentTab === "customers" && currentBranchId === "__all__") {
+        if (similarGroups.length === 0) await loadSimilarCustomers();
+        if (customerMasters.length === 0) await loadCustomerMasters();
+        renderCustomers();
+      } else if (currentTab === "calendar") {
         await loadCalendar();
       } else if (currentTab === "schedule") {
         await loadScheduleAndRender();
@@ -6243,6 +6975,38 @@ function page() {
       renderCustomers();
     };
 
+    document.querySelectorAll(".hq-tab").forEach(tab => {
+      tab.onclick = () => {
+        currentHqTab = tab.dataset.hqTab;
+        document.querySelectorAll(".hq-tab").forEach(t => t.classList.toggle("active", t.dataset.hqTab === currentHqTab));
+        document.querySelectorAll(".hq-tab-content").forEach(c => c.classList.remove("active"));
+        document.querySelector("#hq-tab-" + currentHqTab)?.classList.add("active");
+        if (currentHqTab === "similar" && similarGroups.length === 0) {
+          loadSimilarCustomers();
+        } else if (currentHqTab === "masters" && customerMasters.length === 0) {
+          loadCustomerMasters();
+        }
+        renderHqCustomers();
+      };
+    });
+
+    document.querySelector("#refresh-similar-btn")?.addEventListener("click", () => {
+      loadSimilarCustomers();
+    });
+
+    document.querySelector("#similar-threshold")?.addEventListener("change", () => {
+      loadSimilarCustomers();
+    });
+
+    document.querySelector("#master-search")?.addEventListener("input", (e) => {
+      masterSearchKeyword = e.target.value;
+      loadCustomerMasters();
+    });
+
+    document.querySelector("#back-to-masters")?.addEventListener("click", () => {
+      backToMastersList();
+    });
+
     document.querySelector("#cm-close").onclick = () => {
       document.querySelector("#customer-modal-overlay").classList.remove("active");
       editingCustomerId = null;
@@ -6496,11 +7260,13 @@ const server = http.createServer(async (req, res) => {
     const branchId = url.searchParams.get("branchId") || DEFAULT_BRANCH_ID;
     const byBranch = (items) => branchId === "__all__" ? items : items.filter(i => (i.branchId || DEFAULT_BRANCH_ID) === branchId);
     const allViewReadPaths = new Set(["/api/branches", "/api/branches/stats", "/api/dashboard/cross-branch"]);
-    if (branchId === "__all__" && req.method !== "GET") {
-      return sendJson(res, 403, { error: "总部视角下不能进行数据操作，请切换到具体分店" });
+    const hqWritePrefixes = ["/api/customers/similar", "/api/customers/merge", "/api/customers/merge-preview", "/api/customer-masters"];
+    const isHqWritePath = () => hqWritePrefixes.some(prefix => url.pathname === prefix || url.pathname.startsWith(prefix + "/"));
+    if (branchId === "__all__" && req.method !== "GET" && !isHqWritePath()) {
+      return sendJson(res, 403, { error: "总部视角下不能进行业务数据操作，请切换到具体分店" });
     }
-    if (branchId === "__all__" && req.method === "GET" && !allViewReadPaths.has(url.pathname)) {
-      return sendJson(res, 403, { error: "总部视角仅支持跨分店经营看板，请切换到具体分店查看业务数据" });
+    if (branchId === "__all__" && req.method === "GET" && !allViewReadPaths.has(url.pathname) && !isHqWritePath()) {
+      return sendJson(res, 403, { error: "总部视角仅支持跨分店经营看板和客户合并管理，请切换到具体分店查看业务数据" });
     }
     if (req.method === "GET" && url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -7438,7 +8204,7 @@ const server = http.createServer(async (req, res) => {
       const branchWorks = byBranch(db.works || []);
       return sendJson(res, 201, enrichCustomer(customer, branchOrders, branchWorks));
     }
-    const custMatch = url.pathname.match(/^\/api\/customers\/([^/]+)$/);
+    const custMatch = url.pathname.match(/^\/api\/customers\/(C-[^/]+)$/);
     if (custMatch) {
       const customer = byBranch(db.customers || []).find(c => c.id === custMatch[1]);
       if (!customer) return sendJson(res, 404, { error: "customer_not_found" });
@@ -7480,6 +8246,260 @@ const server = http.createServer(async (req, res) => {
         await saveDb(db);
         return sendJson(res, 200, { ok: true });
       }
+    }
+    if (req.method === "GET" && url.pathname === "/api/customers/similar") {
+      if (branchId !== "__all__") {
+        return sendJson(res, 403, { error: "客户相似度检测仅在总部视角下可用" });
+      }
+      const threshold = Number(url.searchParams.get("threshold") || 0.5);
+      const allCustomers = db.customers || [];
+      const allOrders = db.orders || [];
+      const allWorks = db.works || [];
+      const groups = findSimilarCustomers(allCustomers, threshold);
+      const result = groups.map(g => {
+        const enrichedMembers = g.members.map(m => enrichCustomer(m, allOrders, allWorks));
+        const branchIds = [...new Set(enrichedMembers.map(m => m.branchId || DEFAULT_BRANCH_ID))];
+        const branchNames = branchIds.map(bid => {
+          const b = (db.branches || []).find(x => x.id === bid);
+          return b ? b.name : "未知分店";
+        });
+        return {
+          centerId: g.center.id,
+          memberCount: g.members.length,
+          branchCount: branchIds.length,
+          branchNames,
+          members: enrichedMembers,
+          matches: g.matches
+        };
+      });
+      return sendJson(res, 200, result);
+    }
+    if (req.method === "GET" && url.pathname === "/api/customers/merge-preview") {
+      if (branchId !== "__all__") {
+        return sendJson(res, 403, { error: "客户合并预览仅在总部视角下可用" });
+      }
+      const idsStr = url.searchParams.get("ids") || "";
+      const ids = idsStr.split(",").filter(Boolean);
+      if (ids.length < 2) {
+        return sendJson(res, 400, { error: "请至少选择2个客户进行合并" });
+      }
+      const allCustomers = db.customers || [];
+      const allOrders = db.orders || [];
+      const allWorks = db.works || [];
+      const customers = allCustomers.filter(c => ids.includes(c.id));
+      if (customers.length !== ids.length) {
+        return sendJson(res, 404, { error: "部分客户不存在" });
+      }
+      const enriched = customers.map(c => enrichCustomer(c, allOrders, allWorks));
+      const totalOrders = enriched.reduce((s, c) => s + c.orderCount, 0);
+      const totalWorks = enriched.reduce((s, c) => s + c.workCount, 0);
+      const totalSpent = enriched.reduce((s, c) => s + c.totalSpent, 0);
+      const pendingOrders = enriched.reduce((s, c) => s + c.pendingOrders, 0);
+      const branchIds = [...new Set(customers.map(c => c.branchId || DEFAULT_BRANCH_ID))];
+      const branchInfo = branchIds.map(bid => {
+        const branch = (db.branches || []).find(b => b.id === bid);
+        const branchCustomers = customers.filter(c => (c.branchId || DEFAULT_BRANCH_ID) === bid);
+        return {
+          branchId: bid,
+          branchName: branch?.name || "未知分店",
+          customerCount: branchCustomers.length,
+          customers: branchCustomers.map(c => ({ id: c.id, name: c.name, phone: c.phone, wechat: c.wechat }))
+        };
+      });
+      const suggestedName = customers.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))[0]?.name || "";
+      const suggestedPhone = customers.find(c => c.phone)?.phone || "";
+      const suggestedWechat = customers.find(c => c.wechat)?.wechat || "";
+      const suggestedAddress = customers.find(c => c.address)?.address || "";
+      return sendJson(res, 200, {
+        customers: enriched,
+        totalOrders,
+        totalWorks,
+        totalSpent,
+        pendingOrders,
+        branchInfo,
+        suggested: {
+          name: suggestedName,
+          phone: suggestedPhone,
+          wechat: suggestedWechat,
+          address: suggestedAddress
+        }
+      });
+    }
+    if (req.method === "POST" && url.pathname === "/api/customers/merge") {
+      if (branchId !== "__all__") {
+        return sendJson(res, 403, { error: "客户合并仅在总部视角下可用" });
+      }
+      const input = await body(req);
+      const customerIds = input.customerIds || [];
+      if (customerIds.length < 2) {
+        return sendJson(res, 400, { error: "请至少选择2个客户进行合并" });
+      }
+      const allCustomers = db.customers || [];
+      const customersToMerge = allCustomers.filter(c => customerIds.includes(c.id));
+      if (customersToMerge.length !== customerIds.length) {
+        return sendJson(res, 404, { error: "部分客户不存在" });
+      }
+      const existingMasters = customersToMerge.filter(c => c.masterId).map(c => c.masterId);
+      let masterId;
+      let masterCustomer;
+      if (existingMasters.length > 0) {
+        masterId = existingMasters[0];
+        masterCustomer = (db.customerMasters || []).find(m => m.id === masterId);
+        if (!masterCustomer) {
+          masterId = null;
+        }
+      }
+      if (!masterCustomer) {
+        masterId = `CM-${Date.now()}`;
+        const firstCustomer = customersToMerge.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))[0];
+        masterCustomer = {
+          id: masterId,
+          name: input.name || firstCustomer.name,
+          phone: input.phone || firstCustomer.phone || "",
+          wechat: input.wechat || firstCustomer.wechat || "",
+          address: input.address || firstCustomer.address || "",
+          note: input.note || "",
+          preferredPaper: "",
+          preferredMounting: "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        if (!db.customerMasters) db.customerMasters = [];
+        db.customerMasters.push(masterCustomer);
+      } else {
+        if (input.name !== undefined) masterCustomer.name = input.name;
+        if (input.phone !== undefined) masterCustomer.phone = input.phone;
+        if (input.wechat !== undefined) masterCustomer.wechat = input.wechat;
+        if (input.address !== undefined) masterCustomer.address = input.address;
+        if (input.note !== undefined) masterCustomer.note = input.note;
+        masterCustomer.updatedAt = new Date().toISOString();
+      }
+      for (const customer of customersToMerge) {
+        customer.masterId = masterId;
+      }
+      if (existingMasters.length > 1) {
+        const otherMasterIds = existingMasters.filter(id => id !== masterId);
+        for (const otherId of otherMasterIds) {
+          const otherCustomers = allCustomers.filter(c => c.masterId === otherId);
+          for (const oc of otherCustomers) {
+            oc.masterId = masterId;
+          }
+          db.customerMasters = db.customerMasters.filter(m => m.id !== otherId);
+        }
+      }
+      await saveDb(db);
+      const allOrders = db.orders || [];
+      const allWorks = db.works || [];
+      const branches = db.branches || [];
+      const result = enrichMasterCustomer(masterCustomer, allCustomers, allOrders, allWorks, branches);
+      return sendJson(res, 200, result);
+    }
+    if (req.method === "GET" && url.pathname === "/api/customer-masters") {
+      if (branchId !== "__all__") {
+        return sendJson(res, 403, { error: "主客户列表仅在总部视角下可用" });
+      }
+      const allCustomers = db.customers || [];
+      const allOrders = db.orders || [];
+      const allWorks = db.works || [];
+      const branches = db.branches || [];
+      const keyword = url.searchParams.get("q")?.trim();
+      const masters = db.customerMasters || [];
+      const enriched = masters.map(m => enrichMasterCustomer(m, allCustomers, allOrders, allWorks, branches));
+      const result = keyword
+        ? enriched.filter(m => m.name.includes(keyword) || (m.phone || "").includes(keyword) || (m.wechat || "").includes(keyword))
+        : enriched;
+      result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return sendJson(res, 200, result);
+    }
+    const masterMatch = url.pathname.match(/^\/api\/customer-masters\/([^/]+)$/);
+    if (masterMatch) {
+      const master = (db.customerMasters || []).find(m => m.id === masterMatch[1]);
+      if (!master) return sendJson(res, 404, { error: "master_not_found" });
+      const allCustomers = db.customers || [];
+      const allOrders = db.orders || [];
+      const allWorks = db.works || [];
+      const branches = db.branches || [];
+      const masterCustomerIds = allCustomers.filter(c => c.masterId === master.id).map(c => c.id);
+      if (branchId !== "__all__") {
+        const hasBranchCustomer = allCustomers.some(c => c.masterId === master.id && (c.branchId || DEFAULT_BRANCH_ID) === branchId);
+        if (!hasBranchCustomer) {
+          return sendJson(res, 403, { error: "无权查看该主客户信息" });
+        }
+      }
+      if (req.method === "GET") {
+        const enriched = enrichMasterCustomer(master, allCustomers, allOrders, allWorks, branches);
+        const branchOrders = branchId === "__all__"
+          ? allOrders.filter(o => masterCustomerIds.includes(o.customerId))
+          : allOrders.filter(o => masterCustomerIds.includes(o.customerId) && (o.branchId || DEFAULT_BRANCH_ID) === branchId);
+        const branchWorks = branchId === "__all__"
+          ? allWorks.filter(w => masterCustomerIds.includes(w.customerId))
+          : allWorks.filter(w => masterCustomerIds.includes(w.customerId) && (w.branchId || DEFAULT_BRANCH_ID) === branchId);
+        const branchCustomers = branchId === "__all__"
+          ? allCustomers.filter(c => c.masterId === master.id)
+          : allCustomers.filter(c => c.masterId === master.id && (c.branchId || DEFAULT_BRANCH_ID) === branchId);
+        return sendJson(res, 200, {
+          ...enriched,
+          orders: branchOrders,
+          works: branchWorks,
+          customers: branchCustomers,
+          viewBranchId: branchId
+        });
+      }
+      if (req.method === "PUT") {
+        if (branchId !== "__all__") {
+          return sendJson(res, 403, { error: "主客户编辑仅在总部视角下可用" });
+        }
+        const input = await body(req);
+        if (input.name !== undefined) {
+          if (!input.name.trim()) return sendJson(res, 400, { error: "客户姓名不能为空" });
+          master.name = input.name.trim();
+        }
+        if (input.phone !== undefined) master.phone = input.phone;
+        if (input.wechat !== undefined) master.wechat = input.wechat;
+        if (input.address !== undefined) master.address = input.address;
+        if (input.note !== undefined) master.note = input.note;
+        if (input.preferredPaper !== undefined) master.preferredPaper = input.preferredPaper || "";
+        if (input.preferredMounting !== undefined) master.preferredMounting = input.preferredMounting || "";
+        master.updatedAt = new Date().toISOString();
+        await saveDb(db);
+        return sendJson(res, 200, enrichMasterCustomer(master, allCustomers, allOrders, allWorks, branches));
+      }
+      if (req.method === "DELETE") {
+        if (branchId !== "__all__") {
+          return sendJson(res, 403, { error: "主客户删除仅在总部视角下可用" });
+        }
+        for (const customer of allCustomers) {
+          if (customer.masterId === master.id) {
+            customer.masterId = null;
+          }
+        }
+        db.customerMasters = db.customerMasters.filter(m => m.id !== master.id);
+        await saveDb(db);
+        return sendJson(res, 200, { ok: true });
+      }
+    }
+    const masterUnlinkMatch = url.pathname.match(/^\/api\/customer-masters\/([^/]+)\/unlink\/([^/]+)$/);
+    if (masterUnlinkMatch && req.method === "POST") {
+      if (branchId !== "__all__") {
+        return sendJson(res, 403, { error: "解除客户关联仅在总部视角下可用" });
+      }
+      const masterId = masterUnlinkMatch[1];
+      const customerId = masterUnlinkMatch[2];
+      const master = (db.customerMasters || []).find(m => m.id === masterId);
+      if (!master) return sendJson(res, 404, { error: "master_not_found" });
+      const customer = (db.customers || []).find(c => c.id === customerId);
+      if (!customer) return sendJson(res, 404, { error: "customer_not_found" });
+      if (customer.masterId !== masterId) {
+        return sendJson(res, 400, { error: "该客户不属于此主客户" });
+      }
+      customer.masterId = null;
+      master.updatedAt = new Date().toISOString();
+      const remainingCustomers = (db.customers || []).filter(c => c.masterId === masterId);
+      if (remainingCustomers.length === 0) {
+        db.customerMasters = db.customerMasters.filter(m => m.id !== masterId);
+      }
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true });
     }
     if (req.method === "GET" && url.pathname === "/api/change-requests") {
       const statusFilter = url.searchParams.get("status");
