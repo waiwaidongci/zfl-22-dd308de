@@ -413,11 +413,12 @@ test("HTTP integration: submit -> approve updates order fields, materialUsage, r
     const materialsBefore = await request(ctx.url, "/api/materials", { method: "GET" });
     const m1Before = materialsBefore.body.find(m => m.id === "M-001");
     const m2Before = materialsBefore.body.find(m => m.id === "M-002");
+    const m6Before = materialsBefore.body.find(m => m.id === "M-006");
 
     const submitRes = await request(ctx.url, "/api/orders/FT-2601/change-requests", {
       method: "POST",
       body: JSON.stringify({
-        changes: { paper: "云母宣", inkPlan: "浓墨鱼身", size: "140x70cm", mounting: "立轴" },
+        changes: { paper: "云母宣", inkPlan: "浓墨鱼身", size: "140x70cm", mounting: "镜片" },
         reason: "客户要求重新配置"
       })
     });
@@ -437,19 +438,24 @@ test("HTTP integration: submit -> approve updates order fields, materialUsage, r
     assert.equal(order.paper, "云母宣", "order paper updated");
     assert.equal(order.inkPlan, "浓墨鱼身", "order inkPlan updated");
     assert.equal(order.size, "140x70cm", "order size updated");
+    assert.equal(order.mounting, "镜片", "order mounting updated");
     assert.ok(order.materialUsage, "materialUsage should exist");
     assert.ok(order.materialUsage["M-002"] >= 1, "should use 云母宣 (M-002) now");
     assert.equal(order.materialUsage["M-001"], undefined, "should no longer use 楮皮纸 (M-001)");
+    assert.equal(order.materialUsage["M-006"], undefined, "should no longer reserve axle material for 镜片");
 
     assert.ok(order.changeHistory && order.changeHistory.some(c => c.id === crId), "changeHistory updated");
     assert.ok(order.history && order.history.some(h => h.note.includes("[订单变更]")), "history has change log");
     assert.ok(order.history.some(h => h.note.includes("客户要求重新配置")), "reason recorded in history");
+    assert.ok(order.history.some(h => h.note.includes("装裱方式") && h.note.includes("立轴") && h.note.includes("镜片")), "history records mounting change");
 
     const materialsAfter = await request(ctx.url, "/api/materials", { method: "GET" });
     const m1After = materialsAfter.body.find(m => m.id === "M-001");
     const m2After = materialsAfter.body.find(m => m.id === "M-002");
+    const m6After = materialsAfter.body.find(m => m.id === "M-006");
     assert.ok(m1After.reserved < m1Before.reserved || m1After.reserved === 0, "M-001 reserved should decrease");
     assert.ok(m2After.reserved > m2Before.reserved, "M-002 reserved should increase");
+    assert.ok(m6After.reserved < m6Before.reserved || m6After.reserved === 0, "M-006 reserved should decrease after changing away from 立轴");
 
     const listRes = await request(ctx.url, `/api/orders/FT-2601/change-requests`, { method: "GET" });
     const approved = listRes.body.find(c => c.id === crId);
