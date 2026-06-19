@@ -6910,6 +6910,10 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: "已完成订单不允许变更" });
       }
       const input = await body(req);
+      const orderBranchId = order.branchId || branchId;
+      const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+      const allOrdersBeforeChange = byBranch(db.orders || []);
+      const approvalImpact = cr.impact || calculateChangeImpact(order, cr.changes, branchMaterials, allOrdersBeforeChange);
       cr.status = "approved";
       cr.approvedAt = new Date().toISOString();
       cr.approver = input.approver || "系统";
@@ -6937,8 +6941,6 @@ const server = http.createServer(async (req, res) => {
         }
       }
       const needMaterialRecalc = ["size", "paper", "inkPlan", "mounting"].some(k => k in cr.changes);
-      const orderBranchId = order.branchId || branchId;
-      const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
       if (needMaterialRecalc && order.status !== "已完成" && !order.materialDeducted) {
         if (order.materialUsage) {
           for (const [matId, qty] of Object.entries(order.materialUsage)) {
@@ -6969,25 +6971,37 @@ const server = http.createServer(async (req, res) => {
       if (needTaskRefresh && order.status !== "已完成") {
         const oldTasks = order.tasks ? order.tasks.map(t => ({ ...t })) : [];
         const completedTasks = oldTasks.filter(t => t.completed);
-        const completedTaskIds = new Set(completedTasks.map(t => t.id));
         const newTasks = generateInitialTasks(order);
         const mergedTasks = newTasks.map(nt => {
-          const ot = completedTasks.find(x => x.stage === nt.stage);
+          const ot = oldTasks.find(x => x.stage === nt.stage);
           if (ot) {
-            return { ...nt, id: ot.id, completed: true, createdAt: ot.createdAt, updatedAt: new Date().toISOString(), note: ot.note };
+            return {
+              ...nt,
+              id: ot.id,
+              completed: ot.completed,
+              createdAt: ot.createdAt,
+              updatedAt: new Date().toISOString(),
+              note: ot.note,
+              tags: ot.tags
+            };
           }
           return { ...nt, updatedAt: new Date().toISOString() };
         });
+        for (const oldTask of oldTasks) {
+          if (!mergedTasks.some(t => t.id === oldTask.id) && !oldTask.completed) {
+            mergedTasks.push({ ...oldTask, updatedAt: new Date().toISOString() });
+          }
+        }
         order.tasks = mergedTasks;
         if (cr.changes.dueDate || needMaterialRecalc) {
-          const allOrders = byBranch(db.orders || []);
-          const impact = calculateChangeImpact(order, cr.changes, branchMaterials, allOrders);
+          const impact = approvalImpact;
           if (impact.scheduleImpact && (impact.scheduleImpact.riskLevel === "high" || impact.scheduleImpact.riskLevel === "mid")) {
             const compressedStages = impact.scheduleImpact.upcomingStages.filter(s => s.willBeCompressed);
             for (const stage of compressedStages) {
               taskAlerts.push({
                 type: "schedule_compress",
                 stage: stage.stage,
+                date: stage.plannedEndDate,
                 message: `【${stage.stage}】工序预计压缩 ${stage.compressedByDays} 天，请优先处理该订单`,
                 severity: impact.scheduleImpact.riskLevel
               });
@@ -7002,10 +7016,11 @@ const server = http.createServer(async (req, res) => {
             }
           }
           if (needMaterialRecalc && impact.stockImpact?.hasShortage) {
+            const stockAlertStage = scheduleStages.includes(order.status) ? order.status : "待拓印";
             for (const item of impact.stockImpact.shortageItems) {
               taskAlerts.push({
                 type: "stock_shortage",
-                stage: "待拓印",
+                stage: stockAlertStage,
                 message: `【${item.name}】库存不足，需要 ${item.required} ${item.unit}，但仅可用 ${item.available} ${item.unit}，请及时补货`,
                 severity: "high",
                 materialId: item.materialId
@@ -7013,10 +7028,11 @@ const server = http.createServer(async (req, res) => {
             }
           }
           if (needMaterialRecalc && impact.stockImpact?.hasLowStock && !impact.stockImpact.hasShortage) {
+            const stockAlertStage = scheduleStages.includes(order.status) ? order.status : "待拓印";
             for (const item of impact.stockImpact.lowStockItems) {
               taskAlerts.push({
                 type: "stock_low",
-                stage: "待拓印",
+                stage: stockAlertStage,
                 message: `【${item.name}】变更后可用库存为 ${item.availableAfter} ${item.unit}，低于预警阈值 ${item.threshold} ${item.unit}`,
                 severity: "mid",
                 materialId: item.materialId
@@ -7024,7 +7040,23 @@ const server = http.createServer(async (req, res) => {
             }
           }
           for (const alert of taskAlerts) {
-            const targetTask = order.tasks.find(t => t.stage === alert.stage && !t.completed);
+            let targetTask = order.tasks.find(t => t.stage === alert.stage && !t.completed);
+            if (!targetTask && scheduleStages.includes(alert.stage)) {
+              targetTask = {
+                id: `T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                stage: alert.stage,
+                assignee: order.owner || "未分配",
+                date: alert.date || order.dueDate || toLocalDateString(new Date()),
+                note: "",
+                completed: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+              order.tasks.push(targetTask);
+            }
+            if (!targetTask) {
+              targetTask = order.tasks.find(t => !t.completed);
+            }
             if (targetTask) {
               const alertNote = `⚠️ [${alert.severity === "high" ? "高风险" : "中风险"}] ${alert.message}`;
               targetTask.note = targetTask.note ? (targetTask.note + "\n" + alertNote) : alertNote;
