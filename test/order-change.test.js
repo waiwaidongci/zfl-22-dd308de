@@ -1,13 +1,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import {
-  cleanTmpDir,
-  tmpFilePath,
-  deepClone,
-  startServer,
-  stopServer,
-  request
-} from "../lib/test-helpers.js";
+import { createTestContext } from "../lib/test-helpers.js";
+
+const testCtx = createTestContext(import.meta.url);
+const { deepClone, tmpFilePath, startServer, stopServer, request, cleanScopeDir } = testCtx;
 
 process.env.NO_LISTEN = "1";
 const serverModule = await import("../server.js");
@@ -25,6 +21,14 @@ const {
   seed,
   toLocalDateString
 } = __test__;
+
+before(async () => {
+  await cleanScopeDir();
+});
+
+after(async () => {
+  await cleanScopeDir();
+});
 
 function buildBranchMaterials(overrides = {}) {
   return deepClone(DEFAULT_MATERIALS).map(m => ({
@@ -56,14 +60,6 @@ function buildBaseOrder(overrides = {}) {
     ...overrides
   };
 }
-
-before(async () => {
-  await cleanTmpDir();
-});
-
-after(async () => {
-  await cleanTmpDir();
-});
 
 // ===== 单元测试 =====
 

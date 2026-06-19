@@ -1,16 +1,10 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import {
-  cleanTmpDir,
-  tmpFilePath,
-  deepClone,
-  startServer,
-  stopServer,
-  request,
-  hashDataFile,
-  isDataFileUnchanged,
-  paths
-} from "../lib/test-helpers.js";
+import { createTestContext, hashDataFile, isDataFileUnchanged, paths } from "../lib/test-helpers.js";
+
+const testCtx = createTestContext(import.meta.url);
+const { deepClone } = testCtx;
+const { tmpFilePath, startServer, stopServer, request, cleanScopeDir } = testCtx;
 
 process.env.NO_LISTEN = "1";
 const serverModule = await import("../server.js");
@@ -20,12 +14,12 @@ const { seed, DEFAULT_BRANCH_ID } = __test__;
 let dataHashBeforeTests = null;
 
 before(async () => {
-  await cleanTmpDir();
+  await cleanScopeDir();
   dataHashBeforeTests = await hashDataFile();
 });
 
 after(async () => {
-  await cleanTmpDir();
+  await cleanScopeDir();
   if (dataHashBeforeTests) {
     const unchanged = await isDataFileUnchanged(dataHashBeforeTests);
     assert.ok(unchanged, "data/fish-rubbing.json must not be modified by tests");

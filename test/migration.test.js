@@ -1,17 +1,22 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import {
-  cleanTmpDir,
-  tmpFilePath,
-  writeJson,
-  readJson,
-  deepClone
-} from "../lib/test-helpers.js";
+import { createTestContext, deepClone } from "../lib/test-helpers.js";
+
+const ctx = createTestContext(import.meta.url);
+const { tmpFilePath, writeJson, readJson, cleanScopeDir } = ctx;
 
 process.env.NO_LISTEN = "1";
 const serverModule = await import("../server.js");
 const { __test__ } = serverModule;
 const { DEFAULT_MATERIALS, DEFAULT_BRANCH_ID, seed } = __test__;
+
+before(async () => {
+  await cleanScopeDir();
+});
+
+after(async () => {
+  await cleanScopeDir();
+});
 
 function buildLegacySeedV1() {
   return {
@@ -94,14 +99,6 @@ function buildLegacySeedV3_PartialMigrated() {
   delete s.branches;
   return s;
 }
-
-before(async () => {
-  await cleanTmpDir();
-});
-
-after(async () => {
-  await cleanTmpDir();
-});
 
 test("migration: empty JSON with only orders gets all defaults", async () => {
   const dbPath = tmpFilePath("migration-v1");
