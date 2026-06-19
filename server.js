@@ -142,6 +142,227 @@ function toLocalDateString(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+const STAGE_DURATION_DAYS = {
+  "待拓印": 1,
+  "晾干中": 2,
+  "装裱中": 2,
+  "待取件": 1
+};
+
+function daysBetween(dateStr1, dateStr2) {
+  if (!dateStr1 || !dateStr2) return 0;
+  const d1 = new Date(dateStr1);
+  const d2 = new Date(dateStr2);
+  d1.setHours(0, 0, 0, 0);
+  d2.setHours(0, 0, 0, 0);
+  return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+}
+
+function calculateRemainingWorkDays(order) {
+  const currentIdx = stages.indexOf(order.status);
+  let totalDays = 0;
+  for (let i = currentIdx; i < scheduleStages.length; i++) {
+    totalDays += STAGE_DURATION_DAYS[scheduleStages[i]] || 1;
+  }
+  return totalDays;
+}
+
+function calculateMaterialDiff(oldUsage, newUsage, branchMaterials) {
+  const allMatIds = new Set([...Object.keys(oldUsage || {}), ...Object.keys(newUsage || {})]);
+  const diff = [];
+  for (const matId of allMatIds) {
+    const mat = branchMaterials.find(m => m.id === matId);
+    const oldQty = oldUsage?.[matId] || 0;
+    const newQty = newUsage?.[matId] || 0;
+    const delta = newQty - oldQty;
+    if (delta !== 0 || oldQty !== newQty) {
+      diff.push({
+        materialId: matId,
+        name: mat?.name || "未知材料",
+        unit: mat?.unit || "",
+        oldQuantity: oldQty,
+        newQuantity: newQty,
+        delta: delta,
+        deltaText: (delta > 0 ? "+" : "") + delta + " " + (mat?.unit || "")
+      });
+    }
+  }
+  return diff.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+}
+
+function checkStockAfterChange(newUsage, orderId, branchMaterials, allOrders) {
+  const result = [];
+  for (const [matId, qty] of Object.entries(newUsage || {})) {
+    const mat = branchMaterials.find(m => m.id === matId);
+    if (!mat) continue;
+    const otherReserved = (mat.reserved || 0) - ((() => {
+      const order = allOrders.find(o => o.id === orderId);
+      return order?.materialUsage?.[matId] || 0;
+    })());
+    const available = (mat.stock || 0) - Math.max(0, otherReserved);
+    const shortage = Math.max(0, qty - available);
+    const afterReserved = otherReserved + qty;
+    const afterAvailable = (mat.stock || 0) - afterReserved;
+    result.push({
+      materialId: matId,
+      name: mat.name,
+      unit: mat.unit,
+      required: qty,
+      available: available,
+      shortage: shortage,
+      isSufficient: shortage === 0,
+      threshold: mat.threshold || 0,
+      isLowAfter: afterAvailable < (mat.threshold || 0),
+      stockAfter: mat.stock || 0,
+      reservedAfter: afterReserved,
+      availableAfter: afterAvailable
+    });
+  }
+  return result;
+}
+
+function assessScheduleRisk(order, newDueDate) {
+  const today = toLocalDateString(new Date());
+  const remainingDays = calculateRemainingWorkDays(order);
+  const oldDueDate = order.dueDate;
+  const effectiveNewDue = newDueDate || oldDueDate;
+
+  const oldDaysToDue = daysBetween(today, oldDueDate);
+  const newDaysToDue = daysBetween(today, effectiveNewDue);
+  const oldBuffer = oldDaysToDue - remainingDays;
+  const newBuffer = newDaysToDue - remainingDays;
+  const bufferReduction = oldBuffer - newBuffer;
+
+  const isDueDateChanged = newDueDate && newDueDate !== oldDueDate;
+  const isCompressed = newDueDate && daysBetween(newDueDate, oldDueDate) > 0;
+
+  const upcomingStages = [];
+  const currentIdx = stages.indexOf(order.status);
+  let accumulatedDays = 0;
+  for (let i = currentIdx; i < scheduleStages.length; i++) {
+    const stage = scheduleStages[i];
+    const duration = STAGE_DURATION_DAYS[stage] || 1;
+    const stageStartOffset = accumulatedDays;
+    const stageEndOffset = accumulatedDays + duration;
+    const stageOldEnd = addDays(today, stageEndOffset);
+    const willStageCompress = isDueDateChanged && isCompressed && daysBetween(effectiveNewDue, stageOldEnd) > 0;
+    upcomingStages.push({
+      stage,
+      durationDays: duration,
+      plannedEndDate: stageOldEnd,
+      willBeCompressed: willStageCompress,
+      compressedByDays: willStageCompress ? daysBetween(effectiveNewDue, stageOldEnd) : 0
+    });
+    accumulatedDays += duration;
+  }
+
+  let riskLevel = "low";
+  let riskMessage = "工期充足，无明显压缩风险";
+  if (newBuffer < 0) {
+    riskLevel = "high";
+    riskMessage = `⚠️ 工期不足：剩余工序需 ${remainingDays} 天，但距离新交付日期仅 ${newDaysToDue} 天，缺少 ${Math.abs(newBuffer)} 天`;
+  } else if (newBuffer <= 1) {
+    riskLevel = "high";
+    riskMessage = `⚠️ 工期极度紧张：完成工序需要 ${remainingDays} 天，缓冲仅剩 ${newBuffer} 天`;
+  } else if (newBuffer <= 2) {
+    riskLevel = "mid";
+    riskMessage = `⚠️ 工期较紧张：完成工序需要 ${remainingDays} 天，缓冲仅 ${newBuffer} 天`;
+  } else if (bufferReduction > 0 && isDueDateChanged) {
+    riskLevel = "mid";
+    riskMessage = `交付日期提前，缓冲时间从 ${oldBuffer} 天缩减至 ${newBuffer} 天（减少 ${bufferReduction} 天）`;
+  }
+
+  return {
+    oldDueDate,
+    newDueDate: effectiveNewDue,
+    isDueDateChanged,
+    remainingWorkDays: remainingDays,
+    oldDaysToDue,
+    newDaysToDue,
+    oldBufferDays: Math.max(0, oldBuffer),
+    newBufferDays: Math.max(0, newBuffer),
+    bufferReductionDays: Math.max(0, bufferReduction),
+    riskLevel,
+    riskMessage,
+    upcomingStages
+  };
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + Number(days || 0));
+  return toLocalDateString(d);
+}
+
+function calculateChangeImpact(order, changes, branchMaterials, allOrders) {
+  const impact = {
+    materialImpact: null,
+    stockImpact: null,
+    scheduleImpact: null,
+    overallRiskLevel: "low",
+    summary: []
+  };
+
+  const materialFields = ["size", "paper", "inkPlan", "mounting"];
+  const affectsMaterials = materialFields.some(k => k in changes);
+
+  if (affectsMaterials) {
+    const simulatedOrder = { ...order, ...changes };
+    const oldUsage = order.materialUsage || estimateMaterialUsage(order);
+    const newUsage = estimateMaterialUsage(simulatedOrder);
+    const matDiff = calculateMaterialDiff(oldUsage, newUsage, branchMaterials);
+    const stockCheck = checkStockAfterChange(newUsage, order.id, branchMaterials, allOrders);
+    const hasShortage = stockCheck.some(s => !s.isSufficient);
+    const hasLowStock = stockCheck.some(s => s.isLowAfter);
+
+    impact.materialImpact = {
+      changed: matDiff.length > 0,
+      diff: matDiff,
+      oldUsage,
+      newUsage
+    };
+    impact.stockImpact = {
+      items: stockCheck,
+      hasShortage,
+      hasLowStock,
+      shortageItems: stockCheck.filter(s => !s.isSufficient),
+      lowStockItems: stockCheck.filter(s => s.isLowAfter)
+    };
+    if (hasShortage) {
+      impact.overallRiskLevel = "high";
+      impact.summary.push("材料库存不足");
+    } else if (hasLowStock) {
+      if (impact.overallRiskLevel !== "high") impact.overallRiskLevel = "mid";
+      impact.summary.push("部分材料将低于预警阈值");
+    }
+    if (matDiff.some(d => d.delta > 0)) {
+      impact.summary.push("材料用量增加");
+    }
+  }
+
+  if (changes.dueDate || affectsMaterials) {
+    const scheduleRisk = assessScheduleRisk(order, changes.dueDate || order.dueDate);
+    impact.scheduleImpact = scheduleRisk;
+    if (scheduleRisk.riskLevel === "high") {
+      impact.overallRiskLevel = "high";
+    } else if (scheduleRisk.riskLevel === "mid" && impact.overallRiskLevel !== "high") {
+      impact.overallRiskLevel = "mid";
+    }
+    if (scheduleRisk.isDueDateChanged) {
+      impact.summary.push("交付日期变更");
+    }
+    if (scheduleRisk.bufferReductionDays > 0) {
+      impact.summary.push("工期缓冲减少");
+    }
+  }
+
+  if (impact.summary.length === 0) {
+    impact.summary.push("无明显负面影响");
+  }
+
+  return impact;
+}
+
 const seed = {
   materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)),
   materialTransactions: [],
@@ -714,6 +935,38 @@ function page() {
     #cr-fields input[type="checkbox"] { margin:0; }
     #cr-fields input[type="text"], #cr-fields input[type="number"], #cr-fields input[type="date"], #cr-fields textarea { margin-bottom:6px; }
     .cr-tip { padding:10px 12px; background:#fff7e6; border:1px solid #ffe58f; border-radius:6px; font-size:13px; color:#8a6d3b; margin-bottom:12px; }
+    .cr-preview { margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); display:none; }
+    .cr-preview.active { display:block; }
+    .cr-preview-title { font-weight:700; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+    .cr-risk-tag { display:inline-block; padding:2px 10px; border-radius:4px; font-size:12px; font-weight:700; }
+    .cr-risk-tag.high { background:#fce4e4; color:#9b2c2c; }
+    .cr-risk-tag.mid { background:#fff7e6; color:#d48806; }
+    .cr-risk-tag.low { background:#dff0ed; color:#1e5854; }
+    .cr-preview-section { margin-top:10px; padding:10px; background:#fff; border-radius:6px; }
+    .cr-preview-section h4 { margin:0 0 8px; font-size:13px; color:var(--ink); }
+    .cr-preview-section .section-warn { color:#9b2c2c; font-size:12px; font-weight:600; }
+    .cr-preview-section .section-mid { color:#d48806; font-size:12px; font-weight:600; }
+    .cr-mat-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .cr-mat-table th, .cr-mat-table td { padding:6px 8px; text-align:left; border-bottom:1px solid var(--line); }
+    .cr-mat-table th { background:var(--bg); font-weight:600; color:var(--muted); font-size:11px; }
+    .cr-mat-table .delta-up { color:#9b2c2c; font-weight:700; }
+    .cr-mat-table .delta-down { color:#246b68; font-weight:700; }
+    .cr-mat-table .stock-ns { color:#9b2c2c; font-weight:700; }
+    .cr-mat-table .stock-ok { color:#246b68; }
+    .cr-mat-table .stock-low { color:#d48806; font-weight:600; }
+    .cr-stage-list { display:grid; gap:6px; font-size:12px; }
+    .cr-stage-item { padding:6px 10px; background:var(--bg); border-radius:4px; display:flex; justify-content:space-between; }
+    .cr-stage-item.compress { background:#fce4e4; color:#9b2c2c; }
+    .cr-summary-list { display:grid; gap:4px; font-size:12px; }
+    .cr-summary-item { padding:4px 8px; border-radius:4px; background:#fff; border-left:3px solid var(--accent); }
+    .cr-summary-item.warn { border-left-color:#9b2c2c; }
+    .cr-summary-item.mid { border-left-color:#d48806; }
+    .cr-btn-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:14px; }
+    .cr-btn-row.three { grid-template-columns:1fr 1fr 1fr; }
+    #cr-preview-btn { background:var(--warn); }
+    .cr-empty-preview { padding:20px; text-align:center; color:var(--muted); font-size:12px; }
+    .cd-impact-section { margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
+    .cd-impact-title { font-weight:700; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
     .dashboard-filters { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; }
     .dashboard-filters .period-btn { padding:8px 16px; border:2px solid var(--line); background:transparent; color:var(--muted); font-weight:700; cursor:pointer; border-radius:6px; transition:all 0.15s; }
     .dashboard-filters .period-btn.active { border-color:var(--accent); background:var(--accent); color:#fff; }
@@ -1372,8 +1625,33 @@ function page() {
         <textarea id="cr-reason" placeholder="请填写变更原因，如：客户要求修改尺寸"></textarea>
       </div>
       <div id="cr-error" style="color:#9b2c2c;font-size:13px;margin-top:6px;display:none;"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+      <div class="cr-preview" id="cr-preview">
+        <div class="cr-preview-title">
+          <span>变更影响预览</span>
+          <span class="cr-risk-tag" id="cr-preview-risk">low</span>
+        </div>
+        <div class="cr-summary-list" id="cr-preview-summary"></div>
+        <div id="cr-preview-material" class="cr-preview-section" style="display:none;">
+          <h4>📦 材料用量变化</h4>
+          <table class="cr-mat-table" id="cr-material-table"><thead><tr><th>材料</th><th>变更前</th><th>变更后</th><th>变化</th><th>库存</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div id="cr-preview-stock" class="cr-preview-section" style="display:none;">
+          <h4>🏷️ 库存检查</h4>
+          <div id="cr-stock-message"></div>
+          <table class="cr-mat-table" id="cr-stock-table" style="margin-top:8px;"><thead><tr><th>材料</th><th>需要</th><th>可用</th><th>变更后可用</th><th>状态</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div id="cr-preview-schedule" class="cr-preview-section" style="display:none;">
+          <h4>📅 工期与工序</h4>
+          <div id="cr-schedule-message"></div>
+          <div class="cr-stage-list" id="cr-stage-list" style="margin-top:8px;"></div>
+        </div>
+        <div id="cr-preview-empty" class="cr-empty-preview" style="display:none;">
+          此变更不涉及材料、库存或工期，无额外影响
+        </div>
+      </div>
+      <div class="cr-btn-row three" style="margin-top:14px;">
         <button class="secondary modal-close" id="cr-cancel">取消</button>
+        <button id="cr-preview-btn">预览影响</button>
         <button id="cr-submit">提交变更申请</button>
       </div>
     </div>
@@ -1384,6 +1662,7 @@ function page() {
       <div class="modal-sub" id="cd-modal-sub"></div>
       <div class="modal-detail" id="cd-detail"></div>
       <div id="cd-diff" style="margin-top:12px;"></div>
+      <div id="cd-impact" style="display:none;"></div>
       <div id="cd-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
         <button id="cd-reject" style="background:#9b2c2c;">驳回</button>
         <button id="cd-approve" style="background:#2d5a4a;">通过</button>
@@ -2962,14 +3241,106 @@ function page() {
       });
 
       document.querySelector("#cr-reason").value = "";
+      document.querySelector("#cr-preview").classList.remove("active");
+      document.querySelector("#cr-preview-empty").style.display = "none";
+      document.querySelector("#cr-preview-material").style.display = "none";
+      document.querySelector("#cr-preview-stock").style.display = "none";
+      document.querySelector("#cr-preview-schedule").style.display = "none";
+      document.querySelector("#cr-preview-summary").innerHTML = "";
+      document.querySelector("#cr-preview-risk").textContent = "low";
+      document.querySelector("#cr-preview-risk").className = "cr-risk-tag low";
+      document.querySelector("#cr-error").style.display = "none";
       overlay.classList.add("active");
     }
 
-    async function submitChangeRequest() {
+    function renderImpactPreview(impact, containerEl, prefix) {
+      const p = prefix || "cr";
+      const riskTag = document.querySelector("#" + p + "-preview-risk");
+      if (riskTag) {
+        riskTag.textContent = { high: "高风险", mid: "中风险", low: "低风险" }[impact.overallRiskLevel] || impact.overallRiskLevel;
+        riskTag.className = "cr-risk-tag " + impact.overallRiskLevel;
+      }
+      const summaryEl = document.querySelector("#" + p + "-preview-summary");
+      if (summaryEl) {
+        const itemCls = impact.overallRiskLevel === "high" ? "warn" : (impact.overallRiskLevel === "mid" ? "mid" : "");
+        summaryEl.innerHTML = impact.summary.map(s => '<div class="cr-summary-item ' + itemCls + '">• ' + s + '</div>').join("");
+      }
+      const matSection = document.querySelector("#" + p + "-preview-material");
+      const matTableBody = document.querySelector("#" + p + "-material-table tbody");
+      if (matSection && impact.materialImpact && impact.materialImpact.changed) {
+        matSection.style.display = "block";
+        if (matTableBody) {
+          matTableBody.innerHTML = impact.materialImpact.diff.map(d => {
+            const deltaCls = d.delta > 0 ? "delta-up" : (d.delta < 0 ? "delta-down" : "");
+            return '<tr><td>' + d.name + '</td><td>' + d.oldQuantity + ' ' + d.unit + '</td><td>' + d.newQuantity + ' ' + d.unit + '</td><td class="' + deltaCls + '">' + d.deltaText + '</td><td>-</td></tr>';
+          }).join("");
+        }
+      } else if (matSection) {
+        matSection.style.display = "none";
+      }
+      const stockSection = document.querySelector("#" + p + "-preview-stock");
+      const stockMsg = document.querySelector("#" + p + "-stock-message");
+      const stockTableBody = document.querySelector("#" + p + "-stock-table tbody");
+      if (stockSection && impact.stockImpact && impact.stockImpact.items.length > 0) {
+        stockSection.style.display = "block";
+        if (stockMsg) {
+          if (impact.stockImpact.hasShortage) {
+            stockMsg.innerHTML = '<span class="section-warn">⚠️ 存在材料库存不足，需及时补货</span>';
+          } else if (impact.stockImpact.hasLowStock) {
+            stockMsg.innerHTML = '<span class="section-mid">⚠️ 部分材料变更后将低于预警阈值</span>';
+          } else {
+            stockMsg.innerHTML = '<span style="color:#246b68;font-size:12px;font-weight:600;">✓ 所有材料库存充足</span>';
+          }
+        }
+        if (stockTableBody) {
+          stockTableBody.innerHTML = impact.stockImpact.items.map(s => {
+            let statusCls = "stock-ok";
+            let statusText = "充足";
+            if (!s.isSufficient) { statusCls = "stock-ns"; statusText = "不足"; }
+            else if (s.isLowAfter) { statusCls = "stock-low"; statusText = "低预警"; }
+            return '<tr><td>' + s.name + '</td><td>' + s.required + ' ' + s.unit + '</td><td>' + s.available + ' ' + s.unit + '</td><td>' + s.availableAfter + ' ' + s.unit + '</td><td class="' + statusCls + '">' + statusText + '</td></tr>';
+          }).join("");
+        }
+      } else if (stockSection) {
+        stockSection.style.display = "none";
+      }
+      const scheduleSection = document.querySelector("#" + p + "-preview-schedule");
+      const scheduleMsg = document.querySelector("#" + p + "-schedule-message");
+      const stageListEl = document.querySelector("#" + p + "-stage-list");
+      if (scheduleSection && impact.scheduleImpact) {
+        scheduleSection.style.display = "block";
+        const si = impact.scheduleImpact;
+        if (scheduleMsg) {
+          let msgCls = "";
+          if (si.riskLevel === "high") msgCls = "section-warn";
+          else if (si.riskLevel === "mid") msgCls = "section-mid";
+          let html = '<div class="' + msgCls + '">' + si.riskMessage + '</div>';
+          html += '<div style="margin-top:6px;font-size:11px;color:var(--muted);">剩余工序需 ' + si.remainingWorkDays + ' 天 · 到期前剩余 ' + si.newDaysToDue + ' 天 · 缓冲 ' + si.newBufferDays + ' 天' + (si.isDueDateChanged ? (' · 交付日期: ' + (si.oldDueDate || "-") + ' → ' + si.newDueDate) : "") + '</div>';
+          scheduleMsg.innerHTML = html;
+        }
+        if (stageListEl) {
+          stageListEl.innerHTML = si.upcomingStages.map(st => {
+            const compressCls = st.willBeCompressed ? "compress" : "";
+            return '<div class="cr-stage-item ' + compressCls + '"><span>' + st.stage + '（' + st.durationDays + '天）</span><span>' + (st.willBeCompressed ? ('⚠️ 压缩 ' + st.compressedByDays + ' 天') : ("计划完成: " + st.plannedEndDate)) + '</span></div>';
+          }).join("");
+        }
+      } else if (scheduleSection) {
+        scheduleSection.style.display = "none";
+      }
+      const emptyEl = document.querySelector("#" + p + "-preview-empty");
+      if (emptyEl) {
+        if (!impact.materialImpact?.changed && !impact.stockImpact && !impact.scheduleImpact) {
+          emptyEl.style.display = "block";
+        } else {
+          emptyEl.style.display = "none";
+        }
+      }
+    }
+
+    async function previewChangeImpact() {
       if (!currentChangeOrderId) return;
       const errorEl = document.querySelector("#cr-error");
       errorEl.style.display = "none";
-
       const changes = {};
       document.querySelectorAll(".cr-field-toggle").forEach(cb => {
         if (cb.checked) {
@@ -2988,6 +3359,52 @@ function page() {
           }
         }
       });
+      if (Object.keys(changes).length === 0) {
+        errorEl.textContent = "请至少选择一项要变更的内容，再预览影响";
+        errorEl.style.display = "block";
+        return;
+      }
+      try {
+        const result = await api("/api/orders/"+currentChangeOrderId+"/change-requests/preview", {
+          method: "POST",
+          body: JSON.stringify({ changes })
+        });
+        document.querySelector("#cr-preview").classList.add("active");
+        renderImpactPreview(result.impact, null, "cr");
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+      }
+    }
+
+    function collectChangeFields() {
+      const changes = {};
+      document.querySelectorAll(".cr-field-toggle").forEach(cb => {
+        if (cb.checked) {
+          const field = cb.dataset.field;
+          if (field === "payment") {
+            changes.payment = {
+              type: document.querySelector("#cr-payment-type").value,
+              amount: Number(document.querySelector("#cr-payment-amount").value || 0),
+              paidAt: document.querySelector("#cr-payment-paidAt").value,
+              note: document.querySelector("#cr-payment-note").value
+            };
+          } else {
+            const input = document.querySelector("#cr-"+field);
+            if (!input) return;
+            changes[field] = input.value;
+          }
+        }
+      });
+      return changes;
+    }
+
+    async function submitChangeRequest() {
+      if (!currentChangeOrderId) return;
+      const errorEl = document.querySelector("#cr-error");
+      errorEl.style.display = "none";
+
+      const changes = collectChangeFields();
 
       const reason = document.querySelector("#cr-reason").value.trim();
 
@@ -3001,7 +3418,28 @@ function page() {
         errorEl.style.display = "block";
         return;
       }
-
+      let previewResult = null;
+      try {
+        previewResult = await api("/api/orders/"+currentChangeOrderId+"/change-requests/preview", {
+          method: "POST",
+          body: JSON.stringify({ changes })
+        });
+      } catch (e) {
+        errorEl.textContent = e.message;
+        errorEl.style.display = "block";
+        return;
+      }
+      document.querySelector("#cr-preview").classList.add("active");
+      renderImpactPreview(previewResult.impact, null, "cr");
+      if (previewResult.impact.overallRiskLevel === "high") {
+        if (!confirm("检测到高风险影响（" + previewResult.impact.summary.join("；") + "）。是否仍要提交此变更申请？")) {
+          return;
+        }
+      } else if (previewResult.impact.overallRiskLevel === "mid") {
+        if (!confirm("检测到中风险影响（" + previewResult.impact.summary.join("；") + "）。是否继续提交？")) {
+          return;
+        }
+      }
       try {
         await api("/api/orders/"+currentChangeOrderId+"/change-requests", {
           method: "POST",
@@ -3060,6 +3498,69 @@ function page() {
       diffHtml += '</div>';
       diffEl.innerHTML = diffHtml;
 
+      const impactEl = document.querySelector("#cd-impact");
+      if (cr.impact && (cr.impact.materialImpact || cr.impact.stockImpact || cr.impact.scheduleImpact)) {
+        impactEl.style.display = "block";
+        const riskLabel = { high: "高风险", mid: "中风险", low: "低风险" }[cr.impact.overallRiskLevel] || cr.impact.overallRiskLevel;
+        const riskCls = "cr-risk-tag " + cr.impact.overallRiskLevel;
+        let impactHtml = '<div class="cd-impact-section">';
+        impactHtml += '<div class="cd-impact-title"><span>变更影响评估</span><span class="' + riskCls + '">' + riskLabel + '</span></div>';
+        impactHtml += '<div class="cr-summary-list">';
+        impactHtml += cr.impact.summary.map(s => {
+          const itemCls = cr.impact.overallRiskLevel === "high" ? "warn" : (cr.impact.overallRiskLevel === "mid" ? "mid" : "");
+          return '<div class="cr-summary-item ' + itemCls + '">• ' + s + '</div>';
+        }).join("");
+        impactHtml += '</div>';
+        if (cr.impact.materialImpact && cr.impact.materialImpact.changed) {
+          impactHtml += '<div class="cr-preview-section" style="display:block;"><h4>📦 材料用量变化</h4>';
+          impactHtml += '<table class="cr-mat-table"><thead><tr><th>材料</th><th>变更前</th><th>变更后</th><th>变化</th></tr></thead><tbody>';
+          impactHtml += cr.impact.materialImpact.diff.map(d => {
+            const deltaCls = d.delta > 0 ? "delta-up" : (d.delta < 0 ? "delta-down" : "");
+            return '<tr><td>' + d.name + '</td><td>' + d.oldQuantity + ' ' + d.unit + '</td><td>' + d.newQuantity + ' ' + d.unit + '</td><td class="' + deltaCls + '">' + d.deltaText + '</td></tr>';
+          }).join("");
+          impactHtml += '</tbody></table></div>';
+        }
+        if (cr.impact.stockImpact && cr.impact.stockImpact.items.length > 0) {
+          impactHtml += '<div class="cr-preview-section" style="display:block;margin-top:10px;"><h4>🏷️ 库存检查</h4>';
+          if (cr.impact.stockImpact.hasShortage) {
+            impactHtml += '<span class="section-warn">⚠️ 存在材料库存不足，审批后请及时补货</span>';
+          } else if (cr.impact.stockImpact.hasLowStock) {
+            impactHtml += '<span class="section-mid">⚠️ 部分材料变更后将低于预警阈值</span>';
+          } else {
+            impactHtml += '<span style="color:#246b68;font-size:12px;font-weight:600;">✓ 所有材料库存充足</span>';
+          }
+          impactHtml += '<table class="cr-mat-table" style="margin-top:8px;"><thead><tr><th>材料</th><th>需要</th><th>可用</th><th>变更后可用</th><th>状态</th></tr></thead><tbody>';
+          impactHtml += cr.impact.stockImpact.items.map(s => {
+            let statusCls = "stock-ok";
+            let statusText = "充足";
+            if (!s.isSufficient) { statusCls = "stock-ns"; statusText = "不足"; }
+            else if (s.isLowAfter) { statusCls = "stock-low"; statusText = "低预警"; }
+            return '<tr><td>' + s.name + '</td><td>' + s.required + ' ' + s.unit + '</td><td>' + s.available + ' ' + s.unit + '</td><td>' + s.availableAfter + ' ' + s.unit + '</td><td class="' + statusCls + '">' + statusText + '</td></tr>';
+          }).join("");
+          impactHtml += '</tbody></table></div>';
+        }
+        if (cr.impact.scheduleImpact) {
+          const si = cr.impact.scheduleImpact;
+          impactHtml += '<div class="cr-preview-section" style="display:block;margin-top:10px;"><h4>📅 工期与工序</h4>';
+          let msgCls = "";
+          if (si.riskLevel === "high") msgCls = "section-warn";
+          else if (si.riskLevel === "mid") msgCls = "section-mid";
+          impactHtml += '<div class="' + msgCls + '">' + si.riskMessage + '</div>';
+          impactHtml += '<div style="margin-top:6px;font-size:11px;color:var(--muted);">剩余工序需 ' + si.remainingWorkDays + ' 天 · 到期前剩余 ' + si.newDaysToDue + ' 天 · 缓冲 ' + si.newBufferDays + ' 天' + (si.isDueDateChanged ? (' · 交付日期: ' + (si.oldDueDate || "-") + ' → ' + si.newDueDate) : "") + '</div>';
+          impactHtml += '<div class="cr-stage-list" style="margin-top:8px;">';
+          impactHtml += si.upcomingStages.map(st => {
+            const compressCls = st.willBeCompressed ? "compress" : "";
+            return '<div class="cr-stage-item ' + compressCls + '"><span>' + st.stage + '（' + st.durationDays + '天）</span><span>' + (st.willBeCompressed ? ('⚠️ 压缩 ' + st.compressedByDays + ' 天') : ("计划完成: " + st.plannedEndDate)) + '</span></div>';
+          }).join("");
+          impactHtml += '</div></div>';
+        }
+        impactHtml += '</div>';
+        impactEl.innerHTML = impactHtml;
+      } else {
+        impactEl.style.display = "none";
+        impactEl.innerHTML = "";
+      }
+
       if (cr.status === "pending" && order && order.status !== "已完成" && currentBranchId !== "__all__") {
         actionsEl.style.display = "grid";
       } else {
@@ -3075,14 +3576,34 @@ function page() {
       if (!currentViewingChangeId) return;
       const cr = changeRequests.find(c => c.id === currentViewingChangeId);
       if (!cr) return;
-      if (!confirm("确认通过此变更申请？通过后订单信息将更新。")) return;
+      let confirmMsg = "确认通过此变更申请？通过后订单信息将更新。";
+      if (cr.impact?.overallRiskLevel === "high") {
+        confirmMsg = "⚠️ 此变更存在高风险（" + cr.impact.summary.join("；") + "）。确认仍要通过？";
+      } else if (cr.impact?.overallRiskLevel === "mid") {
+        confirmMsg = "此变更存在中风险（" + cr.impact.summary.join("；") + "）。确认通过？";
+      }
+      if (!confirm(confirmMsg)) return;
       try {
-        await api("/api/orders/"+cr.orderId+"/change-requests/"+cr.id+"/approve", {
+        const result = await api("/api/orders/"+cr.orderId+"/change-requests/"+cr.id+"/approve", {
           method: "POST",
           body: JSON.stringify({ approver: "管理员" })
         });
         document.querySelector("#change-detail-modal").classList.remove("active");
-        alert("变更已通过");
+        let msg = "变更已通过";
+        if (result.taskAlerts && result.taskAlerts.length > 0) {
+          const alertsText = result.taskAlerts.map(function(a) {
+            var sevLabel = a.severity === "high" ? "高风险" : "中风险";
+            return "· [" + sevLabel + " - " + a.stage + "] " + a.message;
+          }).join("\n");
+          msg += "\n\n⚠️ 系统已自动生成以下提醒：\n" + alertsText;
+          if (result.taskAlerts.some(function(a) { return a.type === "stock_shortage"; })) {
+            msg += "\n\n👉 建议：请及时补充不足的材料库存";
+          }
+          if (result.taskAlerts.some(function(a) { return a.type === "schedule_compress" || a.type === "schedule_risk"; })) {
+            msg += "\n\n👉 建议：请优先处理该订单，与相关工序负责人沟通调整排班";
+          }
+        }
+        alert(msg);
         await load();
       } catch (e) {
         alert(e.message);
@@ -4877,6 +5398,7 @@ function page() {
       document.querySelector("#change-request-modal").classList.remove("active");
       currentChangeOrderId = null;
     };
+    document.querySelector("#cr-preview-btn").onclick = previewChangeImpact;
     document.querySelector("#change-request-modal").onclick = (e) => {
       if (e.target.id === "change-request-modal") {
         document.querySelector("#change-request-modal").classList.remove("active");
@@ -6262,6 +6784,33 @@ const server = http.createServer(async (req, res) => {
       withOrderInfo.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       return sendJson(res, 200, withOrderInfo);
     }
+    const changePreviewMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/preview$/);
+    if (changePreviewMatch && req.method === "POST") {
+      const order = db.orders.find(item => item.id === changePreviewMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
+      if (!order) return sendJson(res, 404, { error: "order_not_found" });
+      if (order.status === "已完成") {
+        return sendJson(res, 400, { error: "已完成订单不允许变更" });
+      }
+      const input = await body(req);
+      const changes = input.changes || {};
+      const allowedFields = order.status === "待取件"
+        ? ["payment", "note"]
+        : ["size", "inkPlan", "inscription", "dueDate", "price", "note", "paper", "mounting"];
+      const validChanges = {};
+      for (const key of Object.keys(changes)) {
+        if (allowedFields.includes(key) && changes[key] !== undefined) {
+          validChanges[key] = changes[key];
+        }
+      }
+      if (Object.keys(validChanges).length === 0) {
+        return sendJson(res, 400, { error: "没有有效的变更内容" });
+      }
+      const orderBranchId = order.branchId || branchId;
+      const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+      const allOrders = byBranch(db.orders || []);
+      const impact = calculateChangeImpact(order, validChanges, branchMaterials, allOrders);
+      return sendJson(res, 200, { impact, validChanges });
+    }
     const changeListMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests$/);
     if (changeListMatch) {
       const order = db.orders.find(item => item.id === changeListMatch[1] && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
@@ -6323,6 +6872,10 @@ const server = http.createServer(async (req, res) => {
         for (const key of Object.keys(validChanges)) {
           original[key] = key === "payment" ? "未登记" : (order[key] || "");
         }
+        const orderBranchId = order.branchId || branchId;
+        const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+        const allOrders = byBranch(db.orders || []);
+        const impact = calculateChangeImpact(order, validChanges, branchMaterials, allOrders);
         const changeId = `CR-${Date.now()}`;
         const changeRequest = {
           id: changeId,
@@ -6336,7 +6889,8 @@ const server = http.createServer(async (req, res) => {
           rejectedAt: null,
           approver: "",
           rejectReason: "",
-          branchId: order.branchId || branchId
+          branchId: order.branchId || branchId,
+          impact
         };
         db.orderChanges.push(changeRequest);
         await saveDb(db);
@@ -6383,13 +6937,15 @@ const server = http.createServer(async (req, res) => {
         }
       }
       const needMaterialRecalc = ["size", "paper", "inkPlan", "mounting"].some(k => k in cr.changes);
-      if (needMaterialRecalc && order.materialUsage && order.status !== "已完成" && !order.materialDeducted) {
-        const orderBranchId = order.branchId || branchId;
-        const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
-        for (const [matId, qty] of Object.entries(order.materialUsage)) {
-          const mat = branchMaterials.find(m => m.id === matId);
-          if (mat) {
-            mat.reserved = Math.max(0, (mat.reserved || 0) - qty);
+      const orderBranchId = order.branchId || branchId;
+      const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+      if (needMaterialRecalc && order.status !== "已完成" && !order.materialDeducted) {
+        if (order.materialUsage) {
+          for (const [matId, qty] of Object.entries(order.materialUsage)) {
+            const mat = branchMaterials.find(m => m.id === matId);
+            if (mat) {
+              mat.reserved = Math.max(0, (mat.reserved || 0) - qty);
+            }
           }
         }
         order.materialUsage = estimateMaterialUsage(order);
@@ -6397,6 +6953,89 @@ const server = http.createServer(async (req, res) => {
           const mat = branchMaterials.find(m => m.id === matId);
           if (mat) {
             mat.reserved = (mat.reserved || 0) + qty;
+          }
+        }
+      } else if (!order.materialUsage && order.status !== "已完成" && !order.materialDeducted) {
+        order.materialUsage = estimateMaterialUsage(order);
+        for (const [matId, qty] of Object.entries(order.materialUsage)) {
+          const mat = branchMaterials.find(m => m.id === matId);
+          if (mat) {
+            mat.reserved = (mat.reserved || 0) + qty;
+          }
+        }
+      }
+      const needTaskRefresh = needMaterialRecalc || "dueDate" in cr.changes;
+      const taskAlerts = [];
+      if (needTaskRefresh && order.status !== "已完成") {
+        const oldTasks = order.tasks ? order.tasks.map(t => ({ ...t })) : [];
+        const completedTasks = oldTasks.filter(t => t.completed);
+        const completedTaskIds = new Set(completedTasks.map(t => t.id));
+        const newTasks = generateInitialTasks(order);
+        const mergedTasks = newTasks.map(nt => {
+          const ot = completedTasks.find(x => x.stage === nt.stage);
+          if (ot) {
+            return { ...nt, id: ot.id, completed: true, createdAt: ot.createdAt, updatedAt: new Date().toISOString(), note: ot.note };
+          }
+          return { ...nt, updatedAt: new Date().toISOString() };
+        });
+        order.tasks = mergedTasks;
+        if (cr.changes.dueDate || needMaterialRecalc) {
+          const allOrders = byBranch(db.orders || []);
+          const impact = calculateChangeImpact(order, cr.changes, branchMaterials, allOrders);
+          if (impact.scheduleImpact && (impact.scheduleImpact.riskLevel === "high" || impact.scheduleImpact.riskLevel === "mid")) {
+            const compressedStages = impact.scheduleImpact.upcomingStages.filter(s => s.willBeCompressed);
+            for (const stage of compressedStages) {
+              taskAlerts.push({
+                type: "schedule_compress",
+                stage: stage.stage,
+                message: `【${stage.stage}】工序预计压缩 ${stage.compressedByDays} 天，请优先处理该订单`,
+                severity: impact.scheduleImpact.riskLevel
+              });
+            }
+            if (impact.scheduleImpact.riskLevel === "high" && compressedStages.length === 0) {
+              taskAlerts.push({
+                type: "schedule_risk",
+                stage: order.status,
+                message: impact.scheduleImpact.riskMessage,
+                severity: "high"
+              });
+            }
+          }
+          if (needMaterialRecalc && impact.stockImpact?.hasShortage) {
+            for (const item of impact.stockImpact.shortageItems) {
+              taskAlerts.push({
+                type: "stock_shortage",
+                stage: "待拓印",
+                message: `【${item.name}】库存不足，需要 ${item.required} ${item.unit}，但仅可用 ${item.available} ${item.unit}，请及时补货`,
+                severity: "high",
+                materialId: item.materialId
+              });
+            }
+          }
+          if (needMaterialRecalc && impact.stockImpact?.hasLowStock && !impact.stockImpact.hasShortage) {
+            for (const item of impact.stockImpact.lowStockItems) {
+              taskAlerts.push({
+                type: "stock_low",
+                stage: "待拓印",
+                message: `【${item.name}】变更后可用库存为 ${item.availableAfter} ${item.unit}，低于预警阈值 ${item.threshold} ${item.unit}`,
+                severity: "mid",
+                materialId: item.materialId
+              });
+            }
+          }
+          for (const alert of taskAlerts) {
+            const targetTask = order.tasks.find(t => t.stage === alert.stage && !t.completed);
+            if (targetTask) {
+              const alertNote = `⚠️ [${alert.severity === "high" ? "高风险" : "中风险"}] ${alert.message}`;
+              targetTask.note = targetTask.note ? (targetTask.note + "\n" + alertNote) : alertNote;
+              if (!targetTask.tags) targetTask.tags = [];
+              if (!targetTask.tags.includes("变更提醒")) targetTask.tags.push("变更提醒");
+            }
+            order.history.push({
+              at: new Date().toISOString(),
+              stage: order.status,
+              note: `[变更提醒] ${alert.message}`
+            });
           }
         }
       }
@@ -6424,7 +7063,7 @@ const server = http.createServer(async (req, res) => {
         approver: cr.approver
       });
       await saveDb(db);
-      return sendJson(res, 200, { ...cr, order });
+      return sendJson(res, 200, { ...cr, order, taskAlerts });
     }
     const changeRejectMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/([^/]+)\/reject$/);
     if (changeRejectMatch && req.method === "POST") {
