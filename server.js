@@ -1399,6 +1399,7 @@ function page() {
     .sync-item.status-success { border-left:4px solid #246b68; }
     .sync-item.status-failed { border-left:4px solid #9b2c2c; }
     .sync-item.status-conflict { border-left:4px solid #a65b2a; }
+    .sync-item.status-blocked { border-left:4px solid #d48806; opacity:0.85; }
     .sync-item.status-syncing { border-left:4px solid #1890ff; opacity:0.7; }
     .badge-pending { background:#fff7e6; color:#d48806; }
     .badge-success { background:#eef9f4; color:#246b68; }
@@ -1783,6 +1784,7 @@ function page() {
         </div>
       </div>
       <div class="sync-stats" id="sync-stats"></div>
+      <div id="sync-chain-timeline" style="margin-bottom:16px;"></div>
       <div class="sync-list" id="sync-list"></div>
     </div>
   </main>
@@ -2258,7 +2260,7 @@ function page() {
     const OFFLINE_QUEUE_KEY = "zfl_offline_queue";
     const OFFLINE_CACHE_KEY = "zfl_offline_cache";
     const IDB_NAME = "ZFL_OfflineDB";
-    const IDB_VERSION = 1;
+    const IDB_VERSION = 2;
     const IDB_STORE_QUEUE = "sync_queue";
     const IDB_STORE_CACHE = "data_cache";
     const idbPromise = (() => {
@@ -2272,8 +2274,14 @@ function page() {
               const s = db.createObjectStore(IDB_STORE_QUEUE, { keyPath: "opId" });
               s.createIndex("status", "status", { unique: false });
               s.createIndex("orderId", "orderId", { unique: false });
+              s.createIndex("materialId", "materialId", { unique: false });
               s.createIndex("createdAt", "createdAt", { unique: false });
               s.createIndex("timestamp", "timestamp", { unique: false });
+            } else if (e.oldVersion < 2) {
+              const store = e.target.transaction.objectStore(IDB_STORE_QUEUE);
+              if (!store.indexNames.contains("materialId")) {
+                store.createIndex("materialId", "materialId", { unique: false });
+              }
             }
             if (!db.objectStoreNames.contains(IDB_STORE_CACHE)) {
               db.createObjectStore(IDB_STORE_CACHE, { keyPath: "key" });
@@ -2368,6 +2376,12 @@ function page() {
         entry.orderId = entry.data._clientOrderId;
       } else if (entry.type === "update_stage" || entry.type === "add_payment") {
         entry.orderId = entry.data.orderId;
+      } else if (entry.type === "edit_task" || entry.type === "submit_change_request") {
+        entry.orderId = entry.data.orderId;
+        entry.materialId = null;
+      } else if (entry.type === "stock_in" || entry.type === "stock_check") {
+        entry.orderId = null;
+        entry.materialId = entry.data.materialId;
       }
       await saveOfflineQueue(queue);
       updateNetworkUI();
@@ -2393,6 +2407,12 @@ function page() {
     function extractOrderIdFromOp(op) {
       if (op.type === "create_order") return op.data._clientOrderId;
       if (op.type === "update_stage" || op.type === "add_payment") return op.data.orderId;
+      if (op.type === "edit_task" || op.type === "submit_change_request") return op.data.orderId;
+      return null;
+    }
+
+    function extractMaterialIdFromOp(op) {
+      if (op.type === "stock_in" || op.type === "stock_check") return op.data.materialId;
       return null;
     }
 
@@ -2407,6 +2427,19 @@ function page() {
         }
       }
       return orderOps;
+    }
+
+    function buildMaterialOperationChains(queue) {
+      const matOps = new Map();
+      const sorted = [...queue].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      for (const op of sorted) {
+        const mid = extractMaterialIdFromOp(op);
+        if (mid) {
+          if (!matOps.has(mid)) matOps.set(mid, []);
+          matOps.get(mid).push(op);
+        }
+      }
+      return matOps;
     }
 
     function consolidateStageUpdatesForOrder(orderId, ops, serverSnapshot) {
@@ -2480,6 +2513,7 @@ function page() {
       if (pendingOps.length === 0) return;
 
       const orderChains = buildOperationChains(pendingOps);
+      const materialChains = buildMaterialOperationChains(pendingOps);
       const consolidatedOps = [];
       const skipOpIds = new Set();
 
@@ -2487,6 +2521,8 @@ function page() {
         const createOrder = ops.find(o => o.type === "create_order");
         const stageUpdates = ops.filter(o => o.type === "update_stage");
         const payments = ops.filter(o => o.type === "add_payment");
+        const editTasks = ops.filter(o => o.type === "edit_task");
+        const changeRequests = ops.filter(o => o.type === "submit_change_request");
 
         if (createOrder) {
           consolidatedOps.push(createOrder);
@@ -2505,9 +2541,18 @@ function page() {
         }
 
         payments.forEach(p => consolidatedOps.push(p));
+        editTasks.forEach(t => consolidatedOps.push(t));
+        changeRequests.forEach(c => consolidatedOps.push(c));
       }
 
-      const others = pendingOps.filter(o => !extractOrderIdFromOp(o));
+      for (const [materialId, ops] of materialChains) {
+        ops.forEach(o => consolidatedOps.push(o));
+      }
+
+      const handledByChain = new Set();
+      for (const [_, ops] of orderChains) ops.forEach(o => handledByChain.add(o.opId));
+      for (const [_, ops] of materialChains) ops.forEach(o => handledByChain.add(o.opId));
+      const others = pendingOps.filter(o => !handledByChain.has(o.opId));
       others.forEach(o => consolidatedOps.push(o));
 
       const finalOps = consolidatedOps
@@ -2533,17 +2578,43 @@ function page() {
         branchId: q.branchId || currentBranchId
       }));
 
+      const chainInfoObj = {};
+      for (const [orderId, ops] of orderChains) {
+        chainInfoObj["order:" + orderId] = ops.map(o => o.opId);
+      }
+      for (const [materialId, ops] of materialChains) {
+        chainInfoObj["material:" + materialId] = ops.map(o => o.opId);
+      }
+
       try {
         const res = await fetch("/api/sync/batch?branchId=" + currentBranchId, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ operations, chainInfo: Object.fromEntries(orderChains) })
+          body: JSON.stringify({ operations, chainInfo: chainInfoObj })
         });
         const result = await res.json();
 
         if (result.idMapping && typeof result.idMapping === "object") {
           for (const [localId, serverId] of Object.entries(result.idMapping)) {
             await replaceLocalOrderIdWithServerId(localId, serverId);
+          }
+        }
+
+        const resultByOpId = new Map();
+        for (let i = 0; i < result.results.length; i++) {
+          const r = result.results[i];
+          resultByOpId.set(r.opId, r);
+        }
+
+        const failedChainIds = new Set();
+        for (const [chainKey, opIds] of Object.entries(chainInfoObj)) {
+          let chainBlocked = false;
+          for (const opId of opIds) {
+            const r = resultByOpId.get(opId);
+            if (r && (r.status === "failed" || r.status === "conflict")) {
+              chainBlocked = true;
+              failedChainIds.add(chainKey);
+            }
           }
         }
 
@@ -2569,15 +2640,36 @@ function page() {
                 status: "conflict",
                 conflictData: r.conflict,
                 syncedAt: new Date().toISOString(),
-                _consolidated: id !== op.opId
+                _consolidated: id !== op.opId,
+                _blockedChain: true
               });
             } else {
               await updateOfflineQueueItem(id, {
                 status: "failed",
                 error: r.error || "unknown_error",
                 syncedAt: new Date().toISOString(),
-                _consolidated: id !== op.opId
+                _consolidated: id !== op.opId,
+                _blockedChain: true
               });
+            }
+          }
+        }
+
+        for (const [chainKey, opIds] of Object.entries(chainInfoObj)) {
+          if (!failedChainIds.has(chainKey)) continue;
+          let foundBlocking = false;
+          for (const opId of opIds) {
+            const r = resultByOpId.get(opId);
+            if (foundBlocking && (!r || r.status === "success")) {
+              await updateOfflineQueueItem(opId, {
+                _blockedBy: opIds.find(oid => {
+                  const rr = resultByOpId.get(oid);
+                  return rr && (rr.status === "failed" || rr.status === "conflict");
+                }) || null
+              });
+            }
+            if (r && (r.status === "failed" || r.status === "conflict")) {
+              foundBlocking = true;
             }
           }
         }
@@ -2667,6 +2759,68 @@ function page() {
       return entry;
     }
 
+    async function queueEditTask(orderId, taskId, changes, changeReason) {
+      const entry = {
+        opId: generateOpId(),
+        type: "edit_task",
+        data: { orderId, taskId, changes, changeReason, forceOverride: false },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "排班编辑 · " + orderId + " · 任务" + taskId,
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
+    async function queueSubmitChangeRequest(orderId, changes, reason) {
+      const entry = {
+        opId: generateOpId(),
+        type: "submit_change_request",
+        data: { orderId, changes, reason, forceOverride: false },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "变更申请 · " + orderId,
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
+    async function queueStockIn(materialId, materialName, quantity, note) {
+      const entry = {
+        opId: generateOpId(),
+        type: "stock_in",
+        data: { materialId, materialName, quantity, note, forceOverride: false },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "材料入库 · " + materialName + " +" + quantity,
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
+    async function queueStockCheck(materialId, materialName, actualStock, reason, systemStock) {
+      const diff = actualStock - systemStock;
+      const diffLabel = diff >= 0 ? "盘盈+" + diff : "盘亏" + diff;
+      const entry = {
+        opId: generateOpId(),
+        type: "stock_check",
+        data: { materialId, materialName, actualStock, reason, systemStock, diff, forceOverride: false },
+        status: "pending",
+        timestamp: new Date().toISOString(),
+        branchId: currentBranchId,
+        summary: "库存盘点 · " + materialName + " " + diffLabel,
+        createdAt: new Date().toISOString()
+      };
+      await addToOfflineQueue(entry);
+      return entry;
+    }
+
     function applyOfflineCreateOrderToLocal(entry) {
       const d = entry.data;
       const clientOrderId = d._clientOrderId;
@@ -2734,6 +2888,67 @@ function page() {
       return order;
     }
 
+    function applyOfflineEditTaskToLocal(entry) {
+      const d = entry.data;
+      const order = orders.find(o => o.id === d.orderId);
+      if (!order || !order.tasks) return null;
+      const task = order.tasks.find(t => t.id === d.taskId);
+      if (!task) return null;
+      const changes = d.changes || {};
+      if (changes.stage !== undefined) task.stage = changes.stage;
+      if (changes.assignee !== undefined) task.assignee = changes.assignee;
+      if (changes.date !== undefined) task.date = changes.date;
+      if (changes.note !== undefined) task.note = changes.note;
+      if (changes.completed !== undefined) task.completed = changes.completed;
+      task.updatedAt = entry.timestamp;
+      task._isOffline = true;
+      if (d.changeReason) {
+        if (!order.history) order.history = [];
+        order.history.push({ at: entry.timestamp, stage: task.stage, note: "[排班变更(离线)] " + d.changeReason });
+      }
+      return order;
+    }
+
+    function applyOfflineChangeRequestToLocal(entry) {
+      const d = entry.data;
+      const cr = {
+        id: "CR-LOCAL-" + Date.now(),
+        orderId: d.orderId,
+        status: "pending",
+        changes: d.changes || {},
+        original: {},
+        reason: (d.reason || "") + "（离线提交）",
+        createdAt: entry.timestamp,
+        approvedAt: null,
+        rejectedAt: null,
+        approver: "",
+        rejectReason: "",
+        branchId: currentBranchId,
+        _isOffline: true
+      };
+      changeRequests.push(cr);
+      return cr;
+    }
+
+    function applyOfflineStockInToLocal(entry) {
+      const d = entry.data;
+      const mat = materials.find(m => m.id === d.materialId);
+      if (!mat) return null;
+      const qty = Number(d.quantity || 0);
+      mat.stock = (mat.stock || 0) + qty;
+      mat._isOffline = true;
+      return mat;
+    }
+
+    function applyOfflineStockCheckToLocal(entry) {
+      const d = entry.data;
+      const mat = materials.find(m => m.id === d.materialId);
+      if (!mat) return null;
+      mat.stock = Number(d.actualStock);
+      mat._isOffline = true;
+      return mat;
+    }
+
     async function applyAllOfflineOperationsToLocal() {
       const queue = await getOfflineQueue();
       const pendingOps = queue.filter(q => q.status === "pending");
@@ -2747,6 +2962,14 @@ function page() {
           applyOfflineStageUpdateToLocal(entry);
         } else if (entry.type === "add_payment") {
           applyOfflinePaymentToLocal(entry);
+        } else if (entry.type === "edit_task") {
+          applyOfflineEditTaskToLocal(entry);
+        } else if (entry.type === "submit_change_request") {
+          applyOfflineChangeRequestToLocal(entry);
+        } else if (entry.type === "stock_in") {
+          applyOfflineStockInToLocal(entry);
+        } else if (entry.type === "stock_check") {
+          applyOfflineStockCheckToLocal(entry);
         }
       }
     }
@@ -2764,6 +2987,14 @@ function page() {
             changed = true;
           }
           if (q.type === "add_payment" && q.data && q.data.orderId === localId) {
+            q.data.orderId = serverId;
+            changed = true;
+          }
+          if (q.type === "edit_task" && q.data && q.data.orderId === localId) {
+            q.data.orderId = serverId;
+            changed = true;
+          }
+          if (q.type === "submit_change_request" && q.data && q.data.orderId === localId) {
             q.data.orderId = serverId;
             changed = true;
           }
@@ -4602,6 +4833,19 @@ function page() {
         errorEl.style.display = "block";
         return;
       }
+      if (!isOnline) {
+        try {
+          await queueSubmitChangeRequest(currentChangeOrderId, changes, reason);
+          document.querySelector("#change-request-modal").classList.remove("active");
+          alert("变更申请已暂存到离线队列，恢复网络后自动同步");
+          await applyAllOfflineOperationsToLocal();
+          renderOrders();
+        } catch (e) {
+          errorEl.textContent = e.message;
+          errorEl.style.display = "block";
+        }
+        return;
+      }
       let previewResult = null;
       try {
         previewResult = await api("/api/orders/"+currentChangeOrderId+"/change-requests/preview", {
@@ -4633,8 +4877,16 @@ function page() {
         alert("变更申请已提交，等待审批");
         await load();
       } catch (e) {
-        errorEl.textContent = e.message;
-        errorEl.style.display = "block";
+        if (!navigator.onLine || e.message === "Failed to fetch") {
+          await queueSubmitChangeRequest(currentChangeOrderId, changes, reason);
+          document.querySelector("#change-request-modal").classList.remove("active");
+          alert("变更申请已暂存到离线队列，恢复网络后自动同步");
+          await applyAllOfflineOperationsToLocal();
+          renderOrders();
+        } else {
+          errorEl.textContent = e.message;
+          errorEl.style.display = "block";
+        }
       }
     }
 
@@ -5560,13 +5812,28 @@ function page() {
         if (targetStage) updateBody.stage = targetStage;
         if (targetDate) updateBody.date = targetDate;
         if (targetAssignee) updateBody.assignee = targetAssignee;
-        await api("/api/orders/"+draggedTask.orderId+"/tasks/"+draggedTask.id, {
-          method: "PUT",
-          body: JSON.stringify(updateBody)
-        });
+        if (isOnline) {
+          await api("/api/orders/"+draggedTask.orderId+"/tasks/"+draggedTask.id, {
+            method: "PUT",
+            body: JSON.stringify(updateBody)
+          });
+        } else {
+          await queueEditTask(draggedTask.orderId, draggedTask.id, updateBody, reason.trim());
+          await applyAllOfflineOperationsToLocal();
+        }
         await loadScheduleAndRender();
       } catch (err) {
-        alert(err.message);
+        if (!navigator.onLine || err.message === "Failed to fetch") {
+          const updateBody = { changeReason: reason.trim() };
+          if (targetStage) updateBody.stage = targetStage;
+          if (targetDate) updateBody.date = targetDate;
+          if (targetAssignee) updateBody.assignee = targetAssignee;
+          await queueEditTask(draggedTask.orderId, draggedTask.id, updateBody, reason.trim());
+          await applyAllOfflineOperationsToLocal();
+          await loadScheduleAndRender();
+        } else {
+          alert(err.message);
+        }
       }
     }
 
@@ -5636,16 +5903,27 @@ function page() {
       if (!task) return;
       const reason = task.completed ? "恢复任务" : "标记任务完成";
       try {
-        await api("/api/orders/"+orderId+"/tasks/"+taskId, {
-          method: "PUT",
-          body: JSON.stringify({
-            completed: !task.completed,
-            changeReason: reason
-          })
-        });
+        if (isOnline) {
+          await api("/api/orders/"+orderId+"/tasks/"+taskId, {
+            method: "PUT",
+            body: JSON.stringify({
+              completed: !task.completed,
+              changeReason: reason
+            })
+          });
+        } else {
+          await queueEditTask(orderId, taskId, { completed: !task.completed }, reason);
+          await applyAllOfflineOperationsToLocal();
+        }
         await loadScheduleAndRender();
       } catch (err) {
-        alert(err.message);
+        if (!navigator.onLine || err.message === "Failed to fetch") {
+          await queueEditTask(orderId, taskId, { completed: !task.completed }, reason);
+          await applyAllOfflineOperationsToLocal();
+          await loadScheduleAndRender();
+        } else {
+          alert(err.message);
+        }
       }
     }
 
@@ -5807,6 +6085,43 @@ function page() {
           + '<div class="sync-stat conflict"><strong>'+conflictCount+'</strong><div class="label">需人工确认</div></div>';
       }
 
+      const allOrderChains = buildOperationChains(queue.filter(q => q.status === "pending" || q.status === "failed" || q.status === "conflict"));
+      const allMaterialChains = buildMaterialOperationChains(queue.filter(q => q.status === "pending" || q.status === "failed" || q.status === "conflict"));
+      const timelineEl = document.querySelector("#sync-chain-timeline");
+      if (timelineEl) {
+        const allChains = [];
+        for (const [orderId, ops] of allOrderChains) {
+          if (ops.length > 1) {
+            const hasBlocking = ops.some(o => o.status === "failed" || o.status === "conflict");
+            allChains.push({ key: "📦 " + orderId, ops, hasBlocking, type: "order" });
+          }
+        }
+        for (const [materialId, ops] of allMaterialChains) {
+          if (ops.length > 1) {
+            const hasBlocking = ops.some(o => o.status === "failed" || o.status === "conflict");
+            allChains.push({ key: "🧵 " + (ops[0].data.materialName || materialId), ops, hasBlocking, type: "material" });
+          }
+        }
+        if (allChains.length > 0) {
+          timelineEl.innerHTML = '<div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--ink);">🔗 操作链回放（'+allChains.length+'条活跃链）</div>'
+            + allChains.map(chain => {
+              const statusIcon = chain.hasBlocking ? "⚠️" : "✅";
+              const steps = chain.ops.map((op, idx) => {
+                const label = op.type === "create_order" ? "新增委托" : (op.type === "update_stage" ? "阶段更新" : (op.type === "add_payment" ? "登记收款" : (op.type === "edit_task" ? "排班编辑" : (op.type === "submit_change_request" ? "变更申请" : (op.type === "stock_in" ? "材料入库" : (op.type === "stock_check" ? "库存盘点" : op.type))))));
+                const dot = op.status === "success" ? "🟢" : (op.status === "failed" ? "🔴" : (op.status === "conflict" ? "🟡" : "⚪"));
+                const blocked = op._blockedBy ? " ⏸️" : "";
+                return dot + " " + label + blocked;
+              }).join(" → ");
+              return '<div style="background:var(--panel);border:1px solid '+(chain.hasBlocking ? '#ffe58f' : 'var(--line)')+';border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:12px;">'
+                + '<div style="font-weight:600;margin-bottom:4px;">'+statusIcon+' '+chain.key+'</div>'
+                + '<div style="color:var(--muted);line-height:1.8;">'+steps+'</div>'
+                + '</div>';
+            }).join("");
+        } else {
+          timelineEl.innerHTML = "";
+        }
+      }
+
       const listEl = document.querySelector("#sync-list");
       if (!listEl) return;
 
@@ -5817,16 +6132,34 @@ function page() {
 
       const sorted = [...filtered].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       const orderChainsMap = new Map();
+      const materialChainsMap = new Map();
+      const blockedByMap = new Map();
       for (const item of sorted) {
         const oid = extractOrderIdFromOp(item);
         if (oid) {
           if (!orderChainsMap.has(oid)) orderChainsMap.set(oid, []);
           orderChainsMap.get(oid).push(item);
         }
+        const mid = extractMaterialIdFromOp(item);
+        if (mid) {
+          if (!materialChainsMap.has(mid)) materialChainsMap.set(mid, []);
+          materialChainsMap.get(mid).push(item);
+        }
+      }
+      for (const [chainId, chain] of [...orderChainsMap, ...materialChainsMap]) {
+        let foundBlocking = false;
+        for (const op of chain) {
+          if (foundBlocking && op.status === "pending") {
+            blockedByMap.set(op.opId, chain.find(c => c.status === "failed" || c.status === "conflict"));
+          }
+          if (op.status === "failed" || op.status === "conflict") {
+            foundBlocking = true;
+          }
+        }
       }
 
       listEl.innerHTML = sorted.map(item => {
-        const typeLabel = item.type === "create_order" ? "新增委托" : (item.type === "update_stage" ? "阶段更新" : "登记收款");
+        const typeLabel = item.type === "create_order" ? "新增委托" : (item.type === "update_stage" ? "阶段更新" : (item.type === "add_payment" ? "登记收款" : (item.type === "edit_task" ? "排班编辑" : (item.type === "submit_change_request" ? "变更申请" : (item.type === "stock_in" ? "材料入库" : (item.type === "stock_check" ? "库存盘点" : item.type))))));
         let displayStatus = item.status;
         if (item._consolidated && item.status === "success") displayStatus = "consolidated-success";
         const statusText = item.status === "pending" ? "待同步" : item.status === "success" ? (item._consolidated ? "合并成功" : "成功") : item.status === "failed" ? "失败" : item.status === "conflict" ? "需人工确认" : "同步中";
@@ -5863,18 +6196,76 @@ function page() {
             + '<div>📅 <strong>日期：</strong>'+(p.paidAt||"-")+'</div>'
             + (p.note ? '<div>📝 <strong>备注：</strong>'+p.note+'</div>' : '')
             + '</div>';
+        } else if (item.type === "edit_task") {
+          const d = item.data;
+          const changes = d.changes || {};
+          const changeDesc = [];
+          if (changes.stage) changeDesc.push("阶段→"+changes.stage);
+          if (changes.assignee) changeDesc.push("负责人→"+changes.assignee);
+          if (changes.date) changeDesc.push("日期→"+changes.date);
+          detailHtml = '<div class="sync-data">'
+            + '<div>📋 <strong>订单：</strong>'+d.orderId+'</div>'
+            + '<div>📌 <strong>任务ID：</strong>'+d.taskId+'</div>'
+            + '<div>🔄 <strong>变更：</strong>'+changeDesc.join("；")+'</div>'
+            + (d.changeReason ? '<div>📝 <strong>原因：</strong>'+d.changeReason+'</div>' : '')
+            + '</div>';
+        } else if (item.type === "submit_change_request") {
+          const d = item.data;
+          const changeFields = Object.keys(d.changes || {}).map(k => {
+            const labels = { size:"尺寸", inkPlan:"墨色方案", inscription:"题字", dueDate:"交付日期", price:"价格", payment:"收款", note:"备注", paper:"纸张", mounting:"装裱方式" };
+            return labels[k] || k;
+          });
+          detailHtml = '<div class="sync-data">'
+            + '<div>📋 <strong>订单：</strong>'+d.orderId+'</div>'
+            + '<div>🔄 <strong>变更项：</strong>'+changeFields.join("、")+'</div>'
+            + (d.reason ? '<div>📝 <strong>原因：</strong>'+d.reason+'</div>' : '')
+            + '</div>';
+        } else if (item.type === "stock_in") {
+          const d = item.data;
+          detailHtml = '<div class="sync-data">'
+            + '<div>📦 <strong>材料：</strong>'+(d.materialName||d.materialId)+'</div>'
+            + '<div>📊 <strong>入库数量：</strong>+'+d.quantity+'</div>'
+            + (d.note ? '<div>📝 <strong>备注：</strong>'+d.note+'</div>' : '')
+            + '</div>';
+        } else if (item.type === "stock_check") {
+          const d = item.data;
+          const diffLabel = d.diff >= 0 ? "盘盈+"+d.diff : "盘亏"+d.diff;
+          detailHtml = '<div class="sync-data">'
+            + '<div>📦 <strong>材料：</strong>'+(d.materialName||d.materialId)+'</div>'
+            + '<div>📊 <strong>系统库存：</strong>'+(d.systemStock||0)+'</div>'
+            + '<div>🔢 <strong>实际盘点：</strong>'+d.actualStock+'</div>'
+            + '<div>📈 <strong>差异：</strong>'+diffLabel+'</div>'
+            + (d.reason ? '<div>📝 <strong>原因：</strong>'+d.reason+'</div>' : '')
+            + '</div>';
         }
 
         let errorHtml = "";
         if (item.status === "failed" && item.error) {
           const errMap = {
             "order_not_found": "订单不存在",
+            "task_not_found": "任务不存在",
+            "material_not_found": "材料不存在",
             "unknown_operation_type": "未知操作类型",
             "报价为空，无法登记收款": "报价为空，无法登记收款",
-            "收款金额必须大于0": "收款金额必须大于0"
+            "收款金额必须大于0": "收款金额必须大于0",
+            "入库数量必须大于0": "入库数量必须大于0",
+            "实际库存必须为非负数": "实际库存必须为非负数",
+            "请填写盘点原因": "请填写盘点原因",
+            "没有有效的变更内容": "没有有效的变更内容",
+            "无效的阶段": "无效的阶段"
           };
           const friendlyMsg = errMap[item.error] || item.error;
           errorHtml = '<div class="sync-error"><strong>❌ 错误：</strong>'+friendlyMsg+'</div>';
+        }
+
+        let blockedHtml = "";
+        const blocker = blockedByMap.get(item.opId);
+        const blockedByOpId = item._blockedBy;
+        if (blocker && item.status === "pending") {
+          const blockerLabel = blocker.type === "create_order" ? "新增委托" : (blocker.type === "update_stage" ? "阶段更新" : (blocker.type === "add_payment" ? "登记收款" : (blocker.type === "edit_task" ? "排班编辑" : (blocker.type === "submit_change_request" ? "变更申请" : (blocker.type === "stock_in" ? "材料入库" : (blocker.type === "stock_check" ? "库存盘点" : blocker.type))))));
+          blockedHtml = '<div style="background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;font-size:12px;color:#8a6d3b;margin-top:4px;">⏸️ 被'+blockerLabel+'（'+blocker.opId.replace(/^OP-/, "").slice(0, 12)+'）阻塞，需先解决该操作的'+(blocker.status === "failed" ? "失败" : "冲突")+'</div>';
+        } else if (blockedByOpId && (item.status === "success" || item.status === "pending")) {
+          blockedHtml = '<div style="background:#fff7e6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;font-size:12px;color:#8a6d3b;margin-top:4px;">⏸️ 此操作位于阻塞链中，前序操作'+blockedByOpId.replace(/^OP-/, "").slice(0, 12)+'失败/冲突可能影响结果</div>';
         }
 
         let conflictHtml = "";
@@ -6008,6 +6399,25 @@ function page() {
               + '<button class="merge-submit-btn" data-merge-submit="'+item.opId+'">✅ 确认合并并重新同步</button>'
               + '<button class="merge-cancel-btn" data-merge-cancel="'+item.opId+'">取消</button>'
               + '</div></div></div>';
+          } else if (item.type === "stock_check") {
+            const server = cd.serverSnapshot || {};
+            const local = cd.localChange || {};
+            conflictHtml = '<div class="conflict-detail"><h5>⚠️ 库存盘点冲突：离线期间服务端库存已变化</h5>'
+              + '<div style="font-size:12px;color:#8a5a1e;margin:0 0 10px;">盘点基准与服务器当前库存不一致，请选择解决方案</div>'
+              + '<div class="conflict-side-by-side">'
+              + '<div class="conflict-box server"><div class="conflict-label">🖥️ 服务器当前</div>'
+              + '<div class="conflict-field"><span class="field-name">材料</span><span>'+(server.materialName||server.materialId||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">当前库存</span><span style="color:#246b68;font-weight:700;">'+(server.stock||0)+' '+(server.unit||"")+'</span></div>'
+              + '</div>'
+              + '<div class="conflict-box local"><div class="conflict-label">📱 离线盘点</div>'
+              + '<div class="conflict-field"><span class="field-name">材料</span><span>'+(local.materialName||local.materialId||"-")+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">盘点基准</span><span>'+(local.systemStock||0)+'</span></div>'
+              + '<div class="conflict-field"><span class="field-name">实际盘点</span><span style="color:#a65b2a;font-weight:700;">'+local.actualStock+'</span></div>'
+              + '</div></div>'
+              + '<div class="conflict-resolve-bar">'
+              + '<button class="resolve-btn resolve-local" data-resolve="local" data-opid="'+item.opId+'">📱 强制以盘点结果为准</button>'
+              + '<button class="resolve-btn resolve-server" data-resolve="server" data-opid="'+item.opId+'">🖥️ 保留服务端库存</button>'
+              + '</div></div>';
           }
         }
 
@@ -6021,12 +6431,13 @@ function page() {
           actionsHtml = '<div class="sync-actions"><span style="font-size:12px;color:var(--accent);font-weight:600;">✓ 同步完成'+timeAgo+'</span></div>';
         }
 
-        const metaChainInfo = item.orderId ? '<span style="background:var(--bg);padding:2px 7px;border-radius:4px;">📦 ' + item.orderId + '</span>' : "";
+        const metaChainInfo = item.orderId ? '<span style="background:var(--bg);padding:2px 7px;border-radius:4px;">📦 ' + item.orderId + '</span>' : (item.materialId ? '<span style="background:var(--bg);padding:2px 7px;border-radius:4px;">🧵 ' + item.materialId + '</span>' : "");
         return '<div class="sync-item '+statusClass+'">'
           + '<div class="sync-header"><span class="sync-title">'+typeLabel+'</span><span style="display:flex;gap:6px;align-items:center;">'+chainInfo+statusBadge+'</span></div>'
           + '<div class="sync-meta"><span>'+item.summary+'</span><span>'+fmtDate(item.createdAt)+' '+new Date(item.createdAt).toLocaleTimeString()+'</span>'+metaChainInfo+'<span style="font-family:monospace;font-size:11px;color:var(--muted);">#'+opIdShort+'</span></div>'
           + detailHtml
           + errorHtml
+          + blockedHtml
           + conflictHtml
           + actionsHtml
           + '</div>';
@@ -6042,7 +6453,7 @@ function page() {
       });
       listEl.querySelectorAll("[data-sync-retry]").forEach(btn => {
         btn.onclick = async () => {
-          await updateOfflineQueueItem(btn.dataset.syncRetry, { status: "pending", error: null });
+          await updateOfflineQueueItem(btn.dataset.syncRetry, { status: "pending", error: null, _blockedChain: null, _blockedBy: null });
           renderSync();
           await triggerSync();
         };
@@ -6060,7 +6471,7 @@ function page() {
             const queue = await getOfflineQueue();
             const item = queue.find(q => q.opId === opId);
             if (!item) return;
-            if (item.type === "add_payment" || item.type === "update_stage" || item.type === "create_order") {
+            if (item.type === "add_payment" || item.type === "update_stage" || item.type === "create_order" || item.type === "edit_task" || item.type === "submit_change_request" || item.type === "stock_in" || item.type === "stock_check") {
               item.data.forceOverride = true;
             }
             await saveOfflineQueue(queue);
@@ -6092,6 +6503,11 @@ function page() {
               item.data.payment.note = (item.data.payment.note || "") + "【合并备注：" + mergeNote + "】";
             }
           } else if (item.type === "create_order") {
+            item.data.forceOverride = true;
+            if (mergeNote) {
+              item.data.note = (item.data.note || "") + "【合并备注：" + mergeNote + "】";
+            }
+          } else if (item.type === "edit_task" || item.type === "submit_change_request" || item.type === "stock_in" || item.type === "stock_check") {
             item.data.forceOverride = true;
             if (mergeNote) {
               item.data.note = (item.data.note || "") + "【合并备注：" + mergeNote + "】";
@@ -6635,16 +7051,25 @@ function page() {
         return;
       }
       try {
-        await api("/api/materials/"+stockInMaterialId+"/stock-in", {
-          method: "POST",
-          body: JSON.stringify({ quantity, note })
-        });
-        document.querySelector("#stock-in-modal-overlay").classList.remove("active");
-        stockInMaterialId = null;
-        materials = await api("/api/materials");
-        materialTransactions = await api("/api/materials/transactions");
-        renderMaterials();
-        renderOrders();
+        if (isOnline) {
+          await api("/api/materials/"+stockInMaterialId+"/stock-in", {
+            method: "POST",
+            body: JSON.stringify({ quantity, note })
+          });
+          document.querySelector("#stock-in-modal-overlay").classList.remove("active");
+          stockInMaterialId = null;
+          materials = await api("/api/materials");
+          materialTransactions = await api("/api/materials/transactions");
+          renderMaterials();
+          renderOrders();
+        } else {
+          const m = materials.find(x => x.id === stockInMaterialId);
+          await queueStockIn(stockInMaterialId, m ? m.name : stockInMaterialId, quantity, note);
+          document.querySelector("#stock-in-modal-overlay").classList.remove("active");
+          stockInMaterialId = null;
+          await applyAllOfflineOperationsToLocal();
+          renderMaterials();
+        }
       } catch (e) {
         errorEl.textContent = e.message;
         errorEl.style.display = "block";
@@ -6680,16 +7105,25 @@ function page() {
         return;
       }
       try {
-        await api("/api/materials/"+stockCheckMaterialId+"/stock-check", {
-          method: "POST",
-          body: JSON.stringify({ actualStock, reason: fullReason })
-        });
-        document.querySelector("#stock-check-modal-overlay").classList.remove("active");
-        stockCheckMaterialId = null;
-        materials = await api("/api/materials");
-        materialTransactions = await api("/api/materials/transactions");
-        renderMaterials();
-        renderOrders();
+        if (isOnline) {
+          await api("/api/materials/"+stockCheckMaterialId+"/stock-check", {
+            method: "POST",
+            body: JSON.stringify({ actualStock, reason: fullReason })
+          });
+          document.querySelector("#stock-check-modal-overlay").classList.remove("active");
+          stockCheckMaterialId = null;
+          materials = await api("/api/materials");
+          materialTransactions = await api("/api/materials/transactions");
+          renderMaterials();
+          renderOrders();
+        } else {
+          const m = materials.find(x => x.id === stockCheckMaterialId);
+          await queueStockCheck(stockCheckMaterialId, m ? m.name : stockCheckMaterialId, actualStock, fullReason, m ? m.stock : 0);
+          document.querySelector("#stock-check-modal-overlay").classList.remove("active");
+          stockCheckMaterialId = null;
+          await applyAllOfflineOperationsToLocal();
+          renderMaterials();
+        }
       } catch (e) {
         errorEl.textContent = e.message;
         errorEl.style.display = "block";
@@ -7204,20 +7638,27 @@ function page() {
           alert("新增任务需要选择订单，此功能暂未实现，请在委托单管理中创建订单后自动生成任务。");
           return;
         } else {
-          await api("/api/orders/"+editingTask.orderId+"/tasks/"+editingTask.id, {
-            method: "PUT",
-            body: JSON.stringify({
-              stage,
-              assignee,
-              date,
-              note,
-              changeReason
-            })
-          });
+          if (isOnline) {
+            await api("/api/orders/"+editingTask.orderId+"/tasks/"+editingTask.id, {
+              method: "PUT",
+              body: JSON.stringify({
+                stage,
+                assignee,
+                date,
+                note,
+                changeReason
+              })
+            });
+          } else {
+            await queueEditTask(editingTask.orderId, editingTask.id, { stage, assignee, date, note }, changeReason);
+            await applyAllOfflineOperationsToLocal();
+          }
         }
         document.querySelector("#task-modal-overlay").classList.remove("active");
         editingTask = null;
-        assignees = await api("/api/assignees");
+        if (isOnline) {
+          assignees = await api("/api/assignees");
+        }
         await loadScheduleAndRender();
       } catch (e) {
         errorEl.textContent = e.message;
@@ -9384,6 +9825,195 @@ const server = http.createServer(async (req, res) => {
                     order.paid = totalPaid >= order.price;
                     result.data = pay;
                   }
+                }
+              }
+            }
+          } else if (op.type === "edit_task") {
+            let effectiveOrderId = op.data.orderId;
+            if (localIdToServerId.has(effectiveOrderId)) {
+              effectiveOrderId = localIdToServerId.get(effectiveOrderId);
+            }
+            const order = db.orders.find(item => item.id === effectiveOrderId && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
+            if (!order) {
+              result.status = "failed";
+              result.error = "order_not_found";
+            } else {
+              if (!order.tasks) order.tasks = [];
+              const task = order.tasks.find(t => t.id === op.data.taskId);
+              if (!task) {
+                result.status = "failed";
+                result.error = "task_not_found";
+              } else {
+                const changes = op.data.changes || {};
+                const changeDesc = [];
+                if (changes.stage !== undefined && changes.stage !== task.stage) {
+                  if (!scheduleStages.includes(changes.stage)) {
+                    result.status = "failed";
+                    result.error = "无效的阶段";
+                    results.push(result);
+                    continue;
+                  }
+                  changeDesc.push("阶段：" + task.stage + " → " + changes.stage);
+                  task.stage = changes.stage;
+                }
+                if (changes.assignee !== undefined && changes.assignee !== task.assignee) {
+                  changeDesc.push("负责人：" + task.assignee + " → " + changes.assignee);
+                  task.assignee = changes.assignee;
+                }
+                if (changes.date !== undefined && changes.date !== task.date) {
+                  changeDesc.push("日期：" + task.date + " → " + changes.date);
+                  task.date = changes.date;
+                }
+                if (changes.note !== undefined) {
+                  task.note = changes.note;
+                }
+                if (changes.completed !== undefined) {
+                  task.completed = changes.completed;
+                  changeDesc.push(changes.completed ? "标记完成" : "标记未完成");
+                }
+                task.updatedAt = op.timestamp || new Date().toISOString();
+                if (changeDesc.length > 0 && op.data.changeReason) {
+                  order.history.push({
+                    at: op.timestamp || new Date().toISOString(),
+                    stage: task.stage,
+                    note: "[排班变更(离线)] " + op.data.changeReason + " - " + changeDesc.join("；")
+                  });
+                }
+                result.data = task;
+              }
+            }
+          } else if (op.type === "submit_change_request") {
+            let effectiveOrderId = op.data.orderId;
+            if (localIdToServerId.has(effectiveOrderId)) {
+              effectiveOrderId = localIdToServerId.get(effectiveOrderId);
+            }
+            const order = db.orders.find(item => item.id === effectiveOrderId && (branchId === "__all__" || (item.branchId || DEFAULT_BRANCH_ID) === branchId));
+            if (!order) {
+              result.status = "failed";
+              result.error = "order_not_found";
+            } else {
+              const changes = op.data.changes || {};
+              const reason = op.data.reason || "";
+              if (Object.keys(changes).length === 0) {
+                result.status = "failed";
+                result.error = "没有有效的变更内容";
+              } else {
+                const original = {};
+                for (const key of Object.keys(changes)) {
+                  original[key] = key === "payment" ? "未登记" : (order[key] || "");
+                }
+                const orderBranchId = order.branchId || branchId;
+                const branchMaterials = (db.materials || []).filter(m => (m.branchId || DEFAULT_BRANCH_ID) === orderBranchId);
+                const allOrders = byBranch(db.orders || []);
+                const impact = calculateChangeImpact(order, changes, branchMaterials, allOrders);
+                const changeId = "CR-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+                const changeRequest = {
+                  id: changeId,
+                  orderId: order.id,
+                  status: "pending",
+                  changes,
+                  original,
+                  reason: reason + "（离线提交）",
+                  createdAt: op.timestamp || new Date().toISOString(),
+                  approvedAt: null,
+                  rejectedAt: null,
+                  approver: "",
+                  rejectReason: "",
+                  branchId: orderBranchId,
+                  impact
+                };
+                db.orderChanges.push(changeRequest);
+                result.data = changeRequest;
+              }
+            }
+          } else if (op.type === "stock_in") {
+            const mat = byBranch(db.materials).find(m => m.id === op.data.materialId);
+            if (!mat) {
+              result.status = "failed";
+              result.error = "material_not_found";
+            } else {
+              const qty = Number(op.data.quantity || 0);
+              if (qty <= 0) {
+                result.status = "failed";
+                result.error = "入库数量必须大于0";
+              } else {
+                const before = mat.stock || 0;
+                mat.stock = before + qty;
+                db.materialTransactions.push({
+                  id: "TX-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+                  materialId: mat.id,
+                  materialName: mat.name,
+                  materialUnit: mat.unit,
+                  type: "入库",
+                  quantity: qty,
+                  before,
+                  after: mat.stock,
+                  orderId: null,
+                  note: (op.data.note || "") + "（离线操作）",
+                  at: op.timestamp || new Date().toISOString(),
+                  branchId: mat.branchId || branchId,
+                  ...materialTransactionCostFields(mat, qty, 1)
+                });
+                result.data = { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) };
+              }
+            }
+          } else if (op.type === "stock_check") {
+            const mat = byBranch(db.materials).find(m => m.id === op.data.materialId);
+            if (!mat) {
+              result.status = "failed";
+              result.error = "material_not_found";
+            } else {
+              const actualStock = Number(op.data.actualStock);
+              const reason = op.data.reason || "";
+              if (Number.isNaN(actualStock) || actualStock < 0) {
+                result.status = "failed";
+                result.error = "实际库存必须为非负数";
+              } else if (!reason.trim()) {
+                result.status = "failed";
+                result.error = "请填写盘点原因";
+              } else {
+                const before = mat.stock || 0;
+                const diff = actualStock - before;
+                const serverCurrentStock = mat.stock || 0;
+                const stockChanged = serverCurrentStock !== (op.data.systemStock || 0);
+                if (stockChanged && !op.data.forceOverride) {
+                  result.status = "conflict";
+                  result.conflict = {
+                    serverSnapshot: {
+                      materialId: mat.id,
+                      materialName: mat.name,
+                      stock: serverCurrentStock,
+                      unit: mat.unit
+                    },
+                    localChange: {
+                      materialId: op.data.materialId,
+                      materialName: op.data.materialName,
+                      systemStock: op.data.systemStock,
+                      actualStock,
+                      reason,
+                      offlineAt: op.timestamp
+                    },
+                    reason: "stock_changed_during_offline"
+                  };
+                } else {
+                  mat.stock = actualStock;
+                  db.materialTransactions.push({
+                    id: "TX-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+                    materialId: mat.id,
+                    materialName: mat.name,
+                    materialUnit: mat.unit,
+                    type: "盘点",
+                    quantity: Math.abs(diff),
+                    diff,
+                    before: serverCurrentStock,
+                    after: mat.stock,
+                    orderId: null,
+                    note: reason.trim() + (stockChanged ? " [离线盘点，基准已变化]" : "") + "（离线操作）",
+                    at: op.timestamp || new Date().toISOString(),
+                    branchId: mat.branchId || branchId,
+                    ...materialTransactionCostFields(mat, Math.abs(diff), diff >= 0 ? 1 : -1)
+                  });
+                  result.data = { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) };
                 }
               }
             }
