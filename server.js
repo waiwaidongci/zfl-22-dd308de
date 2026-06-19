@@ -1,922 +1,69 @@
 import http from "node:http";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  DEFAULT_BRANCH_ID,
+  stages,
+  scheduleStages,
+  MAX_TASKS_PER_DAY,
+  DUE_DATE_WARNING_DAYS,
+  WEEKDAY_LABELS,
+  MATERIAL_CATEGORIES,
+  DEFAULT_MATERIALS,
+  STAGE_DURATION_DAYS,
+  DISPLAY_LEVELS,
+  AUTHORIZATION_STATUS,
+  DEFAULT_THEME_TAGS,
+  seed
+} from "./lib/constants.js";
+
+import {
+  parseSizeToArea,
+  toLocalDateString,
+  daysBetween,
+  addDays,
+  normalizeText,
+  formatPaymentRecord,
+  stringSimilarity,
+  getWeekRange
+} from "./lib/utils.js";
+
+import {
+  estimateMaterialUsage,
+  estimateOrderMaterialCost,
+  materialTransactionCostFields,
+  calculateMaterialDiff,
+  checkStockAfterChange
+} from "./lib/materials.js";
+
+import {
+  calculateRemainingWorkDays,
+  assessScheduleRisk,
+  generateInitialTasks,
+  buildWeekScheduleData
+} from "./lib/schedule.js";
+
+import {
+  clientNameFromOrderInput,
+  createOrderConflictSnapshot,
+  createOrderLocalSnapshot,
+  findSimilarOrderConflict,
+  calculateChangeImpact
+} from "./lib/orders.js";
+
+import {
+  enrichCustomer,
+  calculateCustomerSimilarity,
+  findSimilarCustomers,
+  enrichMasterCustomer
+} from "./lib/customers.js";
+
+import { loadDb, saveDb, getDbPath } from "./lib/db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || join(__dirname, "data", "fish-rubbing.json");
 const port = Number(process.env.PORT || 3022);
-
-const DEFAULT_BRANCH_ID = "BR-DEFAULT";
-
-const stages = ["待拓印", "晾干中", "装裱中", "待取件", "已完成"];
-const scheduleStages = ["待拓印", "晾干中", "装裱中", "待取件"];
-const MAX_TASKS_PER_DAY = 5;
-const DUE_DATE_WARNING_DAYS = 3;
-const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
-function getWeekRange(refDate = new Date()) {
-  const date = new Date(refDate);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(date.setDate(diff));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const dayNum = String(d.getDate()).padStart(2, "0");
-    days.push(y + "-" + m + "-" + dayNum);
-  }
-  return { start: days[0], end: days[6], days };
-}
-
-const MATERIAL_CATEGORIES = {
-  PAPER: "纸张",
-  INK: "墨料",
-  CINNABAR: "朱砂",
-  MOUNTING_AXLE: "装裱轴头"
-};
-
-const DEFAULT_MATERIALS = [
-  { id: "M-001", name: "手工楮皮纸", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 50, reserved: 0, threshold: 10, unitCost: 8, note: "四尺整纸规格 69x138cm" },
-  { id: "M-002", name: "云母宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 80, reserved: 0, threshold: 15, unitCost: 5, note: "四尺整纸规格 69x138cm" },
-  { id: "M-003", name: "净皮宣", category: MATERIAL_CATEGORIES.PAPER, unit: "张", stock: 60, reserved: 0, threshold: 15, unitCost: 6, note: "四尺整纸规格 69x138cm" },
-  { id: "M-004", name: "墨料", category: MATERIAL_CATEGORIES.INK, unit: "克", stock: 500, reserved: 0, threshold: 100, unitCost: 0.5, note: "松烟墨粉" },
-  { id: "M-005", name: "朱砂", category: MATERIAL_CATEGORIES.CINNABAR, unit: "克", stock: 100, reserved: 0, threshold: 20, unitCost: 3, note: "书画朱砂粉" },
-  { id: "M-006", name: "装裱轴头(木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 30, reserved: 0, threshold: 5, unitCost: 15, note: "实木轴头，四尺用" },
-  { id: "M-007", name: "装裱轴头(仿红木)", category: MATERIAL_CATEGORIES.MOUNTING_AXLE, unit: "对", stock: 20, reserved: 0, threshold: 5, unitCost: 25, note: "仿红木轴头，四尺用" }
-];
-
-const PAPER_AREA_RATIO = (standardArea) => {
-  const standard = 69 * 138;
-  return standardArea / standard;
-};
-
-function parseSizeToArea(sizeStr) {
-  if (!sizeStr) return 0;
-  const match = sizeStr.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
-  if (!match) return 0;
-  return Number(match[1]) * Number(match[2]);
-}
-
-function estimateMaterialUsage(order) {
-  const usage = {};
-  const area = parseSizeToArea(order.size);
-  const ratio = Math.max(PAPER_AREA_RATIO(area || 69 * 138), 0.5);
-
-  const paperName = order.paper || "";
-  if (paperName.includes("楮皮")) {
-    usage["M-001"] = Math.ceil(ratio);
-  } else if (paperName.includes("云母")) {
-    usage["M-002"] = Math.ceil(ratio);
-  } else if (paperName.includes("宣")) {
-    usage["M-003"] = Math.ceil(ratio);
-  } else {
-    usage["M-001"] = Math.ceil(ratio);
-  }
-
-  const inkPlan = order.inkPlan || "";
-  if (inkPlan.includes("墨")) {
-    usage["M-004"] = Math.ceil(5 * ratio);
-  }
-  if (inkPlan.includes("朱砂") || inkPlan.includes("朱")) {
-    usage["M-005"] = Math.ceil(3 * ratio);
-  }
-
-  const mounting = order.mounting || "";
-  if (mounting.includes("立轴") || mounting.includes("轴")) {
-    usage["M-006"] = 1;
-  }
-
-  return usage;
-}
-
-function estimateOrderMaterialCost(order, materials) {
-  const usage = order.materialUsage || estimateMaterialUsage(order);
-  let totalCost = 0;
-  const breakdown = [];
-  for (const [matId, qty] of Object.entries(usage)) {
-    const mat = materials.find(m => m.id === matId);
-    const unitCost = mat?.unitCost || 0;
-    const cost = Number((qty * unitCost).toFixed(2));
-    totalCost += cost;
-    breakdown.push({
-      materialId: matId,
-      name: mat?.name || "未知材料",
-      unit: mat?.unit || "",
-      quantity: qty,
-      unitCost,
-      cost
-    });
-  }
-  return {
-    totalCost: Number(totalCost.toFixed(2)),
-    breakdown
-  };
-}
-
-function materialTransactionCostFields(material, quantity, direction = 1) {
-  const unitCost = Number(material?.unitCost || 0);
-  const totalCost = Number((Number(quantity || 0) * unitCost).toFixed(2));
-  const costImpact = Number((totalCost * direction).toFixed(2));
-  return { unitCost, totalCost, costImpact };
-}
-
-function formatPaymentRecord(payment) {
-  if (!payment) return "无";
-  return `${payment.type || "收款"} ¥${Number(payment.amount || 0)} · ${payment.paidAt || "-"}${payment.note ? ` · ${payment.note}` : ""}`;
-}
-
-function normalizeText(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function clientNameFromOrderInput(input, customers = []) {
-  if (input.newCustomer?.name) return input.newCustomer.name;
-  if (input.customerId) {
-    const cust = customers.find(c => c.id === input.customerId);
-    if (cust) return cust.name;
-  }
-  return input.client || "";
-}
-
-function createOrderConflictSnapshot(order) {
-  if (!order) return null;
-  return {
-    id: order.id,
-    client: order.client || "",
-    fishSpecies: order.fishSpecies || "",
-    size: order.size || "",
-    paper: order.paper || "",
-    price: Number(order.price || 0),
-    owner: order.owner || "",
-    dueDate: order.dueDate || "",
-    note: order.note || "",
-    status: order.status || "",
-    updatedAt: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].at : "",
-    lastNote: (order.history && order.history.length > 0) ? order.history[order.history.length - 1].note || "" : ""
-  };
-}
-
-function createOrderLocalSnapshot(input, customers = [], offlineAt = "") {
-  return {
-    client: clientNameFromOrderInput(input, customers),
-    fishSpecies: input.fishSpecies || "",
-    size: input.size || "",
-    paper: input.paper || "",
-    price: Number(input.price || 0),
-    owner: input.owner || "",
-    dueDate: input.dueDate || "",
-    note: input.note || "",
-    offlineAt
-  };
-}
-
-function findSimilarOrderConflict(input, orders = [], customers = [], branchId = DEFAULT_BRANCH_ID) {
-  const local = createOrderLocalSnapshot(input, customers);
-  const localClient = normalizeText(local.client);
-  const localSpecies = normalizeText(local.fishSpecies);
-  const localSize = normalizeText(local.size);
-  const localDueDate = normalizeText(local.dueDate);
-  if (!localClient || !localSpecies) return null;
-  return orders.find(order => {
-    if ((order.branchId || DEFAULT_BRANCH_ID) !== branchId) return false;
-    if (order.archived) return false;
-    const sameClient = normalizeText(order.client) === localClient;
-    const sameSpecies = normalizeText(order.fishSpecies) === localSpecies;
-    const sameSize = localSize && normalizeText(order.size) === localSize;
-    const sameDueDate = localDueDate && normalizeText(order.dueDate) === localDueDate;
-    return sameClient && sameSpecies && (sameSize || sameDueDate);
-  }) || null;
-}
-
-function toLocalDateString(value = new Date()) {
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-const STAGE_DURATION_DAYS = {
-  "待拓印": 1,
-  "晾干中": 2,
-  "装裱中": 2,
-  "待取件": 1
-};
-
-const DISPLAY_LEVELS = [
-  { value: "standard", label: "普通作品" },
-  { value: "featured", label: "精选作品" },
-  { value: "flagship", label: "镇店之宝" }
-];
-
-const AUTHORIZATION_STATUS = [
-  { value: "unauthorized", label: "未授权" },
-  { value: "authorized", label: "已授权展示" }
-];
-
-const DEFAULT_THEME_TAGS = [
-  "吉祥寓意", "节日主题", "山水意境", "文人雅趣",
-  "传统吉祥", "现代简约", "送礼佳品", "收藏级",
-  "家庭装饰", "办公陈设"
-];
-
-function daysBetween(dateStr1, dateStr2) {
-  if (!dateStr1 || !dateStr2) return 0;
-  const d1 = new Date(dateStr1);
-  const d2 = new Date(dateStr2);
-  d1.setHours(0, 0, 0, 0);
-  d2.setHours(0, 0, 0, 0);
-  return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
-}
-
-function calculateRemainingWorkDays(order) {
-  const currentIdx = stages.indexOf(order.status);
-  let totalDays = 0;
-  for (let i = currentIdx; i < scheduleStages.length; i++) {
-    totalDays += STAGE_DURATION_DAYS[scheduleStages[i]] || 1;
-  }
-  return totalDays;
-}
-
-function calculateMaterialDiff(oldUsage, newUsage, branchMaterials) {
-  const allMatIds = new Set([...Object.keys(oldUsage || {}), ...Object.keys(newUsage || {})]);
-  const diff = [];
-  for (const matId of allMatIds) {
-    const mat = branchMaterials.find(m => m.id === matId);
-    const oldQty = oldUsage?.[matId] || 0;
-    const newQty = newUsage?.[matId] || 0;
-    const delta = newQty - oldQty;
-    if (delta !== 0 || oldQty !== newQty) {
-      diff.push({
-        materialId: matId,
-        name: mat?.name || "未知材料",
-        unit: mat?.unit || "",
-        oldQuantity: oldQty,
-        newQuantity: newQty,
-        delta: delta,
-        deltaText: (delta > 0 ? "+" : "") + delta + " " + (mat?.unit || "")
-      });
-    }
-  }
-  return diff.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-}
-
-function checkStockAfterChange(newUsage, orderId, branchMaterials, allOrders) {
-  const result = [];
-  for (const [matId, qty] of Object.entries(newUsage || {})) {
-    const mat = branchMaterials.find(m => m.id === matId);
-    if (!mat) continue;
-    const otherReserved = (mat.reserved || 0) - ((() => {
-      const order = allOrders.find(o => o.id === orderId);
-      return order?.materialUsage?.[matId] || 0;
-    })());
-    const available = (mat.stock || 0) - Math.max(0, otherReserved);
-    const shortage = Math.max(0, qty - available);
-    const afterReserved = otherReserved + qty;
-    const afterAvailable = (mat.stock || 0) - afterReserved;
-    result.push({
-      materialId: matId,
-      name: mat.name,
-      unit: mat.unit,
-      required: qty,
-      available: available,
-      shortage: shortage,
-      isSufficient: shortage === 0,
-      threshold: mat.threshold || 0,
-      isLowAfter: afterAvailable < (mat.threshold || 0),
-      stockAfter: mat.stock || 0,
-      reservedAfter: afterReserved,
-      availableAfter: afterAvailable
-    });
-  }
-  return result;
-}
-
-function assessScheduleRisk(order, newDueDate) {
-  const today = toLocalDateString(new Date());
-  const remainingDays = calculateRemainingWorkDays(order);
-  const oldDueDate = order.dueDate;
-  const effectiveNewDue = newDueDate || oldDueDate;
-
-  const oldDaysToDue = daysBetween(today, oldDueDate);
-  const newDaysToDue = daysBetween(today, effectiveNewDue);
-  const oldBuffer = oldDaysToDue - remainingDays;
-  const newBuffer = newDaysToDue - remainingDays;
-  const bufferReduction = oldBuffer - newBuffer;
-
-  const isDueDateChanged = newDueDate && newDueDate !== oldDueDate;
-  const isCompressed = newDueDate && daysBetween(newDueDate, oldDueDate) > 0;
-
-  const upcomingStages = [];
-  const currentIdx = stages.indexOf(order.status);
-  let accumulatedDays = 0;
-  for (let i = currentIdx; i < scheduleStages.length; i++) {
-    const stage = scheduleStages[i];
-    const duration = STAGE_DURATION_DAYS[stage] || 1;
-    const stageStartOffset = accumulatedDays;
-    const stageEndOffset = accumulatedDays + duration;
-    const stageOldEnd = addDays(today, stageEndOffset);
-    const willStageCompress = isDueDateChanged && isCompressed && daysBetween(effectiveNewDue, stageOldEnd) > 0;
-    upcomingStages.push({
-      stage,
-      durationDays: duration,
-      plannedEndDate: stageOldEnd,
-      willBeCompressed: willStageCompress,
-      compressedByDays: willStageCompress ? daysBetween(effectiveNewDue, stageOldEnd) : 0
-    });
-    accumulatedDays += duration;
-  }
-
-  let riskLevel = "low";
-  let riskMessage = "工期充足，无明显压缩风险";
-  if (newBuffer < 0) {
-    riskLevel = "high";
-    riskMessage = `⚠️ 工期不足：剩余工序需 ${remainingDays} 天，但距离新交付日期仅 ${newDaysToDue} 天，缺少 ${Math.abs(newBuffer)} 天`;
-  } else if (newBuffer <= 1) {
-    riskLevel = "high";
-    riskMessage = `⚠️ 工期极度紧张：完成工序需要 ${remainingDays} 天，缓冲仅剩 ${newBuffer} 天`;
-  } else if (newBuffer <= 2) {
-    riskLevel = "mid";
-    riskMessage = `⚠️ 工期较紧张：完成工序需要 ${remainingDays} 天，缓冲仅 ${newBuffer} 天`;
-  } else if (bufferReduction > 0 && isDueDateChanged) {
-    riskLevel = "mid";
-    riskMessage = `交付日期提前，缓冲时间从 ${oldBuffer} 天缩减至 ${newBuffer} 天（减少 ${bufferReduction} 天）`;
-  }
-
-  return {
-    oldDueDate,
-    newDueDate: effectiveNewDue,
-    isDueDateChanged,
-    remainingWorkDays: remainingDays,
-    oldDaysToDue,
-    newDaysToDue,
-    oldBufferDays: Math.max(0, oldBuffer),
-    newBufferDays: Math.max(0, newBuffer),
-    bufferReductionDays: Math.max(0, bufferReduction),
-    riskLevel,
-    riskMessage,
-    upcomingStages
-  };
-}
-
-function addDays(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + Number(days || 0));
-  return toLocalDateString(d);
-}
-
-function calculateChangeImpact(order, changes, branchMaterials, allOrders) {
-  const impact = {
-    materialImpact: null,
-    stockImpact: null,
-    scheduleImpact: null,
-    overallRiskLevel: "low",
-    summary: []
-  };
-
-  const materialFields = ["size", "paper", "inkPlan", "mounting"];
-  const affectsMaterials = materialFields.some(k => k in changes);
-
-  if (affectsMaterials) {
-    const simulatedOrder = { ...order, ...changes };
-    const oldUsage = order.materialUsage || estimateMaterialUsage(order);
-    const newUsage = estimateMaterialUsage(simulatedOrder);
-    const matDiff = calculateMaterialDiff(oldUsage, newUsage, branchMaterials);
-    const stockCheck = checkStockAfterChange(newUsage, order.id, branchMaterials, allOrders);
-    const hasShortage = stockCheck.some(s => !s.isSufficient);
-    const hasLowStock = stockCheck.some(s => s.isLowAfter);
-
-    impact.materialImpact = {
-      changed: matDiff.length > 0,
-      diff: matDiff,
-      oldUsage,
-      newUsage
-    };
-    impact.stockImpact = {
-      items: stockCheck,
-      hasShortage,
-      hasLowStock,
-      shortageItems: stockCheck.filter(s => !s.isSufficient),
-      lowStockItems: stockCheck.filter(s => s.isLowAfter)
-    };
-    if (hasShortage) {
-      impact.overallRiskLevel = "high";
-      impact.summary.push("材料库存不足");
-    } else if (hasLowStock) {
-      if (impact.overallRiskLevel !== "high") impact.overallRiskLevel = "mid";
-      impact.summary.push("部分材料将低于预警阈值");
-    }
-    if (matDiff.some(d => d.delta > 0)) {
-      impact.summary.push("材料用量增加");
-    }
-  }
-
-  if (changes.dueDate || affectsMaterials) {
-    const scheduleRisk = assessScheduleRisk(order, changes.dueDate || order.dueDate);
-    impact.scheduleImpact = scheduleRisk;
-    if (scheduleRisk.riskLevel === "high") {
-      impact.overallRiskLevel = "high";
-    } else if (scheduleRisk.riskLevel === "mid" && impact.overallRiskLevel !== "high") {
-      impact.overallRiskLevel = "mid";
-    }
-    if (scheduleRisk.isDueDateChanged) {
-      impact.summary.push("交付日期变更");
-    }
-    if (scheduleRisk.bufferReductionDays > 0) {
-      impact.summary.push("工期缓冲减少");
-    }
-  }
-
-  if (impact.summary.length === 0) {
-    impact.summary.push("无明显负面影响");
-  }
-
-  return impact;
-}
-
-const seed = {
-  materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)),
-  materialTransactions: [],
-  orders: [
-    {
-      id: "FT-2601",
-      client: "沈钧",
-      fishSpecies: "真鲷",
-      size: "70x35cm",
-      paper: "手工楮皮纸",
-      inkPlan: "淡墨鱼身，朱砂题款",
-      mounting: "立轴",
-      inscription: "海上清风",
-      owner: "阿青",
-      price: 1800,
-      paid: false,
-      payments: [],
-      dueDate: "2026-06-24",
-      status: "晾干中",
-      tasks: [
-        { id: "T-2601-1", stage: "待拓印", assignee: "阿青", date: "2026-06-13", note: "右侧直接拓印", completed: true, createdAt: "2026-06-12T09:00:00.000Z", updatedAt: "2026-06-13T15:30:00.000Z" },
-        { id: "T-2601-2", stage: "晾干中", assignee: "阿青", date: "2026-06-17", note: "自然晾干，注意湿度", completed: false, createdAt: "2026-06-13T15:30:00.000Z", updatedAt: "2026-06-13T15:30:00.000Z" }
-      ],
-      history: [
-        { at: "2026-06-12T09:00:00.000Z", stage: "待拓印", note: "客户送鱼并确认尺寸" },
-        { at: "2026-06-13T15:30:00.000Z", stage: "晾干中", note: "完成右侧直接拓印" }
-      ]
-    },
-    {
-      id: "FT-2600",
-      client: "周明远",
-      fishSpecies: "黑鲷",
-      size: "60x30cm",
-      paper: "云母宣",
-      inkPlan: "浓墨鱼身，浓淡对比",
-      mounting: "镜片",
-      inscription: "渔乐无穷",
-      owner: "阿青",
-      price: 1500,
-      paid: true,
-      payments: [
-        { id: "PAY-2600-1", type: "定金", amount: 500, paidAt: "2026-06-01", note: "微信转账" },
-        { id: "PAY-2600-2", type: "尾款", amount: 1000, paidAt: "2026-06-10", note: "取件时现金结清" }
-      ],
-      dueDate: "2026-06-10",
-      status: "已完成",
-      archived: false,
-      tasks: [
-        { id: "T-2600-1", stage: "待拓印", assignee: "阿青", date: "2026-06-02", note: "浓墨拓印", completed: true, createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-03T14:00:00.000Z" },
-        { id: "T-2600-2", stage: "晾干中", assignee: "阿青", date: "2026-06-04", note: "晾干两天", completed: true, createdAt: "2026-06-03T14:00:00.000Z", updatedAt: "2026-06-06T10:00:00.000Z" },
-        { id: "T-2600-3", stage: "装裱中", assignee: "阿青", date: "2026-06-07", note: "镜片装裱", completed: true, createdAt: "2026-06-06T10:00:00.000Z", updatedAt: "2026-06-09T16:00:00.000Z" },
-        { id: "T-2600-4", stage: "待取件", assignee: "阿青", date: "2026-06-10", note: "通知客户取件", completed: true, createdAt: "2026-06-09T16:00:00.000Z", updatedAt: "2026-06-10T11:00:00.000Z" }
-      ],
-      history: [
-        { at: "2026-06-01T09:00:00.000Z", stage: "待拓印", note: "新委托接单" },
-        { at: "2026-06-03T14:00:00.000Z", stage: "晾干中", note: "完成拓印" },
-        { at: "2026-06-06T10:00:00.000Z", stage: "装裱中", note: "开始装裱" },
-        { at: "2026-06-09T16:00:00.000Z", stage: "待取件", note: "装裱完成" },
-        { at: "2026-06-10T11:00:00.000Z", stage: "已完成", note: "客户取件并结清" }
-      ]
-    }
-  ],
-  works: [
-    {
-      id: "W-001",
-      orderId: "FT-2599",
-      client: "李渔",
-      fishSpecies: "鲈鱼",
-      size: "80x40cm",
-      paper: "手工楮皮纸",
-      inkPlan: "淡墨鱼身，朱砂点睛",
-      mounting: "立轴",
-      inscription: "烟波钓徒",
-      owner: "阿青",
-      completedAt: "2026-05-20T10:00:00.000Z",
-      themeTags: ["文人雅趣", "山水意境"],
-      displayLevel: "featured",
-      clientAuthorization: "authorized"
-    },
-    {
-      id: "W-002",
-      orderId: "FT-2598",
-      client: "张潮",
-      fishSpecies: "真鲷",
-      size: "65x32cm",
-      paper: "云母宣",
-      inkPlan: "浓淡墨渐变",
-      mounting: "册页",
-      inscription: "海阔凭鱼跃",
-      owner: "阿青",
-      completedAt: "2026-05-15T15:30:00.000Z",
-      themeTags: ["吉祥寓意", "送礼佳品"],
-      displayLevel: "standard",
-      clientAuthorization: "unauthorized"
-    }
-  ]
-};
-
-async function loadDb() {
-  if (!existsSync(dbPath)) {
-    await mkdir(dirname(dbPath), { recursive: true });
-    await writeFile(dbPath, JSON.stringify(seed, null, 2));
-  }
-  const db = JSON.parse(await readFile(dbPath, "utf8"));
-  await migrateLegacyData(db);
-  return db;
-}
-
-async function saveDb(db) {
-  await writeFile(dbPath, JSON.stringify(db, null, 2));
-}
-
-async function migrateLegacyData(db) {
-  let changed = false;
-  if (!db.materials) {
-    db.materials = JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
-    changed = true;
-  } else {
-    for (const def of DEFAULT_MATERIALS) {
-      if (!db.materials.find(m => m.id === def.id)) {
-        db.materials.push(JSON.parse(JSON.stringify(def)));
-        changed = true;
-      }
-    }
-  }
-  if (!db.materialTransactions) {
-    db.materialTransactions = [];
-    changed = true;
-  }
-  if (!db._materialMigrated) {
-    for (const order of (db.orders || [])) {
-      if (!order.materialUsage && order.status !== "已完成") {
-        order.materialUsage = estimateMaterialUsage(order);
-        for (const [matId, qty] of Object.entries(order.materialUsage)) {
-          const mat = db.materials.find(m => m.id === matId);
-          if (mat) {
-            mat.reserved = (mat.reserved || 0) + qty;
-          }
-        }
-        changed = true;
-      }
-    }
-    db._materialMigrated = true;
-    changed = true;
-  }
-  if (!db._materialCostMigrated) {
-    for (const mat of (db.materials || [])) {
-      if (mat.unitCost === undefined || mat.unitCost === null) {
-        const defMat = DEFAULT_MATERIALS.find(d => d.id === mat.id);
-        mat.unitCost = defMat?.unitCost || 0;
-        changed = true;
-      }
-    }
-    db._materialCostMigrated = true;
-    changed = true;
-  }
-  if (!db.customers) { db.customers = []; changed = true; }
-  if (!db._customerMigrated) {
-    const nameToId = new Map(db.customers.map(c => [c.name, c.id]));
-    function ensureCustomer(name) {
-      if (!name) return null;
-      if (nameToId.has(name)) return nameToId.get(name);
-      const id = `C-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const customer = {
-        id,
-        name,
-        phone: "",
-        wechat: "",
-        address: "",
-        note: "",
-        createdAt: new Date().toISOString()
-      };
-      db.customers.push(customer);
-      nameToId.set(name, id);
-      return id;
-    }
-    if (Array.isArray(db.orders)) {
-      for (const order of db.orders) {
-        if (!order.customerId && order.client) {
-          order.customerId = ensureCustomer(order.client);
-          changed = true;
-        }
-      }
-    }
-    if (Array.isArray(db.works)) {
-      for (const work of db.works) {
-        if (!work.customerId && work.client) {
-          work.customerId = ensureCustomer(work.client);
-          changed = true;
-        }
-      }
-    }
-    db._customerMigrated = true;
-    changed = true;
-  }
-  if (!db._tasksMigrated) {
-    if (Array.isArray(db.orders)) {
-      for (const order of db.orders) {
-        if (!order.tasks) {
-          order.tasks = generateInitialTasks(order);
-          changed = true;
-        }
-      }
-    }
-    db._tasksMigrated = true;
-    changed = true;
-  }
-  if (!db.orderChanges) {
-    db.orderChanges = [];
-    changed = true;
-  }
-  if (!db._changeRequestMigrated) {
-    if (Array.isArray(db.orders)) {
-      for (const order of db.orders) {
-        if (!order.changeHistory) {
-          order.changeHistory = [];
-          changed = true;
-        }
-      }
-    }
-    db._changeRequestMigrated = true;
-    changed = true;
-  }
-  if (!db._branchMigrated) {
-    if (!db.branches) {
-      db.branches = [{ id: DEFAULT_BRANCH_ID, name: "总店（默认）", manager: "", address: "", phone: "", createdAt: new Date().toISOString(), isDefault: true }];
-    }
-    for (const order of (db.orders || [])) {
-      if (!order.branchId) { order.branchId = DEFAULT_BRANCH_ID; changed = true; }
-    }
-    for (const material of (db.materials || [])) {
-      if (!material.branchId) { material.branchId = DEFAULT_BRANCH_ID; changed = true; }
-    }
-    for (const customer of (db.customers || [])) {
-      if (!customer.branchId) { customer.branchId = DEFAULT_BRANCH_ID; changed = true; }
-    }
-    for (const work of (db.works || [])) {
-      if (!work.branchId) { work.branchId = DEFAULT_BRANCH_ID; changed = true; }
-    }
-    for (const tx of (db.materialTransactions || [])) {
-      if (!tx.branchId) { tx.branchId = DEFAULT_BRANCH_ID; changed = true; }
-    }
-    for (const change of (db.orderChanges || [])) {
-      if (!change.branchId) { change.branchId = DEFAULT_BRANCH_ID; changed = true; }
-    }
-    db._branchMigrated = true;
-    changed = true;
-  }
-  if (!db._worksEnhancedMigrated) {
-    if (Array.isArray(db.works)) {
-      for (const work of db.works) {
-        if (!work.themeTags) { work.themeTags = []; changed = true; }
-        if (!work.displayLevel) { work.displayLevel = "standard"; changed = true; }
-        if (!work.clientAuthorization) { work.clientAuthorization = "unauthorized"; changed = true; }
-      }
-    }
-    db._worksEnhancedMigrated = true;
-    changed = true;
-  }
-  if (!db.customerMasters) {
-    db.customerMasters = [];
-    changed = true;
-  }
-  if (!db._customerMasterMigrated) {
-    if (Array.isArray(db.customers)) {
-      for (const customer of db.customers) {
-        if (customer.masterId === undefined) {
-          customer.masterId = null;
-          changed = true;
-        }
-      }
-    }
-    db._customerMasterMigrated = true;
-    changed = true;
-  }
-  if (changed) {
-    await saveDb(db);
-  }
-}
-
-function generateInitialTasks(order) {
-  const tasks = [];
-  const history = order.history || [];
-  const stageSet = new Set(scheduleStages);
-  const stageHistory = {};
-  for (const h of history) {
-    if (stageSet.has(h.stage) && !stageHistory[h.stage]) {
-      stageHistory[h.stage] = h;
-    }
-  }
-  let taskIndex = 1;
-  const orderIdNum = order.id.replace(/\D/g, "");
-  for (const stage of scheduleStages) {
-    const stageIdx = stages.indexOf(stage);
-    const currentIdx = stages.indexOf(order.status);
-    const isPast = stageIdx < currentIdx;
-    const isCurrent = stage === order.status;
-    const isFuture = stageIdx > currentIdx;
-    if (order.status === "已完成" || isPast || isCurrent) {
-      const h = stageHistory[stage];
-      const taskDate = h ? h.at.slice(0, 10) : (order.dueDate || new Date().toISOString().slice(0, 10));
-      tasks.push({
-        id: `T-${orderIdNum}-${taskIndex}`,
-        stage,
-        assignee: order.owner || "未分配",
-        date: taskDate,
-        note: h ? h.note : "",
-        completed: isPast || order.status === "已完成",
-        createdAt: h ? h.at : new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      taskIndex++;
-    }
-  }
-  return tasks;
-}
-
-function enrichCustomer(customer, orders, works) {
-  const cOrders = orders.filter(o => o.customerId === customer.id);
-  const cWorks = works.filter(w => w.customerId === customer.id);
-  const allItems = [...cOrders, ...cWorks];
-  const totalPaid = cOrders.reduce((s, o) => s + (o.payments || []).reduce((a, p) => a + p.amount, 0), 0);
-  const totalSpent = cOrders.reduce((s, o) => {
-    const paid = (o.payments || []).reduce((a, p) => a + p.amount, 0);
-    if (o.paid && paid === 0) return s + (o.price || 0);
-    return s + paid;
-  }, 0);
-  const paperCount = {};
-  const mountingCount = {};
-  const sortedItems = allItems.slice().sort((a, b) => {
-    const aTime = new Date(a.dueDate || a.completedAt || a.createdAt || 0).getTime();
-    const bTime = new Date(b.dueDate || b.completedAt || b.createdAt || 0).getTime();
-    return bTime - aTime;
-  });
-  allItems.forEach(item => {
-    if (item.paper) paperCount[item.paper] = (paperCount[item.paper] || 0) + 1;
-    if (item.mounting) mountingCount[item.mounting] = (mountingCount[item.mounting] || 0) + 1;
-  });
-  const autoPreferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  const autoPreferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  const lastInscription = sortedItems.find(item => item.inscription && item.inscription.trim())?.inscription || "";
-  const preferredPaper = customer.preferredPaper || autoPreferredPaper;
-  const preferredMounting = customer.preferredMounting || autoPreferredMounting;
-  const pendingOrders = cOrders.filter(o => o.status !== "已完成").length;
-  return {
-    ...customer,
-    orderCount: cOrders.length,
-    workCount: cWorks.length,
-    pendingOrders,
-    totalPaid,
-    totalSpent,
-    preferredPaper,
-    preferredMounting,
-    lastInscription,
-    autoPreferredPaper,
-    autoPreferredMounting
-  };
-}
-
-function stringSimilarity(s1, s2) {
-  if (!s1 || !s2) return 0;
-  const a = s1.trim().toLowerCase();
-  const b = s2.trim().toLowerCase();
-  if (a === b) return 1;
-  if (a.includes(b) || b.includes(a)) return 0.8;
-  let matches = 0;
-  const setA = new Set(a);
-  const setB = new Set(b);
-  for (const ch of setA) {
-    if (setB.has(ch)) matches++;
-  }
-  return matches / Math.max(setA.size, setB.size);
-}
-
-function calculateCustomerSimilarity(c1, c2) {
-  let score = 0;
-  let reasons = [];
-  const nameSim = stringSimilarity(c1.name, c2.name);
-  if (nameSim >= 0.6) {
-    score = Math.max(score, nameSim);
-    reasons.push("姓名相似");
-  }
-  if (c1.phone && c2.phone) {
-    const phoneSim = stringSimilarity(c1.phone.replace(/\D/g, ""), c2.phone.replace(/\D/g, ""));
-    if (phoneSim >= 0.8) {
-      score = Math.max(score, phoneSim);
-      reasons.push("电话相似");
-    }
-  }
-  if (c1.wechat && c2.wechat) {
-    const wechatSim = stringSimilarity(c1.wechat, c2.wechat);
-    if (wechatSim >= 0.7) {
-      score = Math.max(score, wechatSim);
-      reasons.push("微信相似");
-    }
-  }
-  return { score, reasons };
-}
-
-function findSimilarCustomers(customers, threshold = 0.5) {
-  const groups = [];
-  const visited = new Set();
-  for (let i = 0; i < customers.length; i++) {
-    if (visited.has(customers[i].id)) continue;
-    const group = { center: customers[i], members: [customers[i]], matches: [] };
-    visited.add(customers[i].id);
-    for (let j = i + 1; j < customers.length; j++) {
-      if (visited.has(customers[j].id)) continue;
-      const { score, reasons } = calculateCustomerSimilarity(customers[i], customers[j]);
-      if (score >= threshold) {
-        group.members.push(customers[j]);
-        group.matches.push({ customer: customers[j], score, reasons });
-        visited.add(customers[j].id);
-      }
-    }
-    if (group.members.length > 1) {
-      groups.push(group);
-    }
-  }
-  groups.sort((a, b) => b.members.length - a.members.length);
-  return groups;
-}
-
-function enrichMasterCustomer(master, customers, orders, works, branches) {
-  const masterCustomers = customers.filter(c => c.masterId === master.id);
-  const allOrders = orders.filter(o => masterCustomers.some(mc => mc.id === o.customerId));
-  const allWorks = works.filter(w => masterCustomers.some(mc => mc.id === w.customerId));
-  const totalSpent = allOrders.reduce((s, o) => {
-    const paid = (o.payments || []).reduce((a, p) => a + p.amount, 0);
-    if (o.paid && paid === 0) return s + (o.price || 0);
-    return s + paid;
-  }, 0);
-  const pendingOrders = allOrders.filter(o => o.status !== "已完成").length;
-  const branchIds = [...new Set(masterCustomers.map(c => c.branchId || DEFAULT_BRANCH_ID))];
-  const branchInfo = branchIds.map(bid => {
-    const branch = branches.find(b => b.id === bid);
-    const branchCustomers = masterCustomers.filter(c => (c.branchId || DEFAULT_BRANCH_ID) === bid);
-    const branchOrders = allOrders.filter(o => (o.branchId || DEFAULT_BRANCH_ID) === bid);
-    const branchWorks = allWorks.filter(w => (w.branchId || DEFAULT_BRANCH_ID) === bid);
-    const branchSpent = branchOrders.reduce((s, o) => {
-      const paid = (o.payments || []).reduce((a, p) => a + p.amount, 0);
-      if (o.paid && paid === 0) return s + (o.price || 0);
-      return s + paid;
-    }, 0);
-    return {
-      branchId: bid,
-      branchName: branch?.name || "未知分店",
-      customerCount: branchCustomers.length,
-      orderCount: branchOrders.length,
-      workCount: branchWorks.length,
-      totalSpent: branchSpent
-    };
-  });
-  const paperCount = {};
-  const mountingCount = {};
-  [...allOrders, ...allWorks].forEach(item => {
-    if (item.paper) paperCount[item.paper] = (paperCount[item.paper] || 0) + 1;
-    if (item.mounting) mountingCount[item.mounting] = (mountingCount[item.mounting] || 0) + 1;
-  });
-  const preferredPaper = Object.entries(paperCount).sort((a, b) => b[1] - a[1])[0]?.[0] || master.preferredPaper || "";
-  const preferredMounting = Object.entries(mountingCount).sort((a, b) => b[1] - a[1])[0]?.[0] || master.preferredMounting || "";
-  return {
-    ...master,
-    customerCount: masterCustomers.length,
-    orderCount: allOrders.length,
-    workCount: allWorks.length,
-    pendingOrders,
-    totalSpent,
-    preferredPaper,
-    preferredMounting,
-    branchInfo,
-    customerIds: masterCustomers.map(c => c.id)
-  };
-}
 
 async function body(req) {
   const chunks = [];
@@ -7745,7 +6892,7 @@ function page() {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const db = await loadDb();
+    const db = await loadDb(dbPath);
     const branchId = url.searchParams.get("branchId") || DEFAULT_BRANCH_ID;
     const byBranch = (items) => branchId === "__all__" ? items : items.filter(i => (i.branchId || DEFAULT_BRANCH_ID) === branchId);
     const allViewReadPaths = new Set(["/api/branches", "/api/branches/stats", "/api/dashboard/cross-branch"]);
@@ -7802,7 +6949,7 @@ const server = http.createServer(async (req, res) => {
           ...materialTransactionCostFields(mat, mat.stock, 1)
         });
       }
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 201, { ...mat, available: mat.stock, isLow: mat.stock <= mat.threshold });
     }
     if (req.method === "POST" && url.pathname === "/api/materials/estimate") {
@@ -7875,7 +7022,7 @@ const server = http.createServer(async (req, res) => {
         branchId: mat.branchId || branchId,
         ...materialTransactionCostFields(mat, qty, 1)
       });
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
     }
     const stockCheckMatch = url.pathname.match(/^\/api\/materials\/([^/]+)\/stock-check$/);
@@ -7908,7 +7055,7 @@ const server = http.createServer(async (req, res) => {
         branchId: mat.branchId || branchId,
         ...materialTransactionCostFields(mat, Math.abs(diff), diff >= 0 ? 1 : -1)
       });
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
     }
     const matUpdateMatch = url.pathname.match(/^\/api\/materials\/([^/]+)$/);
@@ -7923,7 +7070,7 @@ const server = http.createServer(async (req, res) => {
         if (input.threshold !== undefined) mat.threshold = Number(input.threshold || 0);
         if (input.unitCost !== undefined) mat.unitCost = Number(input.unitCost || 0);
         if (input.note !== undefined) mat.note = input.note || "";
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, { ...mat, available: (mat.stock || 0) - (mat.reserved || 0), isLow: ((mat.stock || 0) - (mat.reserved || 0)) <= (mat.threshold || 0) });
       }
     }
@@ -8383,7 +7530,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       db.orders.unshift(order);
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 201, order);
     }
     const stageMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/stage$/);
@@ -8472,7 +7619,7 @@ const server = http.createServer(async (req, res) => {
           });
         }
       }
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, order);
     }
     const tasksMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/tasks$/);
@@ -8513,7 +7660,7 @@ const server = http.createServer(async (req, res) => {
             note: `[排班新增] ${input.changeReason} - 分配给${input.assignee}，日期${input.date}`
           });
         }
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 201, task);
       }
     }
@@ -8563,7 +7710,7 @@ const server = http.createServer(async (req, res) => {
             note: `[排班变更] ${input.changeReason} - ${changes.join("；")}`
           });
         }
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, task);
       }
       if (req.method === "DELETE") {
@@ -8576,7 +7723,7 @@ const server = http.createServer(async (req, res) => {
             note: `[排班删除] ${input.changeReason} - ${task.stage}任务，原负责人${task.assignee}，原日期${task.date}`
           });
         }
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -8601,7 +7748,7 @@ const server = http.createServer(async (req, res) => {
           const validAuth = AUTHORIZATION_STATUS.map(a => a.value);
           work.clientAuthorization = validAuth.includes(input.clientAuthorization) ? input.clientAuthorization : "unauthorized";
         }
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, work);
       }
     }
@@ -8627,7 +7774,7 @@ const server = http.createServer(async (req, res) => {
         order.payments.push(payment);
         const totalPaid = order.payments.reduce((s, p) => s + p.amount, 0);
         order.paid = totalPaid >= order.price;
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 201, payment);
       }
     }
@@ -8658,7 +7805,7 @@ const server = http.createServer(async (req, res) => {
       };
       db.works.unshift(work);
       order.archived = true;
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 201, work);
     }
     if (req.method === "GET" && url.pathname === "/api/customers") {
@@ -8688,7 +7835,7 @@ const server = http.createServer(async (req, res) => {
       };
       db.customers = db.customers || [];
       db.customers.push(customer);
-      await saveDb(db);
+      await saveDb(db, dbPath);
       const branchOrders = byBranch(db.orders || []);
       const branchWorks = byBranch(db.works || []);
       return sendJson(res, 201, enrichCustomer(customer, branchOrders, branchWorks));
@@ -8725,14 +7872,14 @@ const server = http.createServer(async (req, res) => {
         if (input.note !== undefined) customer.note = input.note;
         if (input.preferredPaper !== undefined) customer.preferredPaper = input.preferredPaper || "";
         if (input.preferredMounting !== undefined) customer.preferredMounting = input.preferredMounting || "";
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, enrichCustomer(customer, branchOrders, branchWorks));
       }
       if (req.method === "DELETE") {
         branchOrders.forEach(o => { if (o.customerId === customer.id) delete o.customerId; });
         branchWorks.forEach(w => { if (w.customerId === customer.id) delete w.customerId; });
         db.customers = db.customers.filter(c => c.id !== customer.id);
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -8876,7 +8023,7 @@ const server = http.createServer(async (req, res) => {
           db.customerMasters = db.customerMasters.filter(m => m.id !== otherId);
         }
       }
-      await saveDb(db);
+      await saveDb(db, dbPath);
       const allOrders = db.orders || [];
       const allWorks = db.works || [];
       const branches = db.branches || [];
@@ -8950,7 +8097,7 @@ const server = http.createServer(async (req, res) => {
         if (input.preferredPaper !== undefined) master.preferredPaper = input.preferredPaper || "";
         if (input.preferredMounting !== undefined) master.preferredMounting = input.preferredMounting || "";
         master.updatedAt = new Date().toISOString();
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, enrichMasterCustomer(master, allCustomers, allOrders, allWorks, branches));
       }
       if (req.method === "DELETE") {
@@ -8963,7 +8110,7 @@ const server = http.createServer(async (req, res) => {
           }
         }
         db.customerMasters = db.customerMasters.filter(m => m.id !== master.id);
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -8987,7 +8134,7 @@ const server = http.createServer(async (req, res) => {
       if (remainingCustomers.length === 0) {
         db.customerMasters = db.customerMasters.filter(m => m.id !== masterId);
       }
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, { ok: true });
     }
     if (req.method === "GET" && url.pathname === "/api/change-requests") {
@@ -9118,7 +8265,7 @@ const server = http.createServer(async (req, res) => {
           impact
         };
         db.orderChanges.push(changeRequest);
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 201, changeRequest);
       }
     }
@@ -9319,7 +8466,7 @@ const server = http.createServer(async (req, res) => {
         approvedAt: cr.approvedAt,
         approver: cr.approver
       });
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, { ...cr, order, taskAlerts });
     }
     const changeRejectMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/change-requests\/([^/]+)\/reject$/);
@@ -9340,7 +8487,7 @@ const server = http.createServer(async (req, res) => {
         stage: order.status,
         note: `[变更驳回] 原因：${cr.rejectReason || "未填写"}；申请变更：${Object.keys(cr.changes).join("、")}`
       });
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, cr);
     }
     if (req.method === "GET" && url.pathname === "/api/branches") {
@@ -9412,7 +8559,7 @@ const server = http.createServer(async (req, res) => {
           });
         }
       }
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 201, newBranch);
     }
     const branchMatch = url.pathname.match(/^\/api\/branches\/([^/]+)$/);
@@ -9428,7 +8575,7 @@ const server = http.createServer(async (req, res) => {
         if (input.manager !== undefined) b.manager = input.manager;
         if (input.address !== undefined) b.address = input.address;
         if (input.phone !== undefined) b.phone = input.phone;
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, b);
       }
       if (req.method === "DELETE") {
@@ -9441,7 +8588,7 @@ const server = http.createServer(async (req, res) => {
         if (db.materials) db.materials = db.materials.filter(m => (m.branchId || DEFAULT_BRANCH_ID) !== bid);
         if (db.materialTransactions) db.materialTransactions = db.materialTransactions.filter(t => (t.branchId || DEFAULT_BRANCH_ID) !== bid);
         if (db.orderChanges) db.orderChanges = db.orderChanges.filter(c => (c.branchId || DEFAULT_BRANCH_ID) !== bid);
-        await saveDb(db);
+        await saveDb(db, dbPath);
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -10103,7 +9250,7 @@ const server = http.createServer(async (req, res) => {
         results.push(result);
       }
 
-      await saveDb(db);
+      await saveDb(db, dbPath);
       return sendJson(res, 200, { results, idMapping: Object.fromEntries(localIdToServerId) });
     }
 
